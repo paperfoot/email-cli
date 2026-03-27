@@ -3,3 +3,4 @@
 .DS_Store
 .installed/
 GPT54_*.md
+.claude/
