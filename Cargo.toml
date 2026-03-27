@@ -2,6 +2,12 @@
 name = "email-cli"
 version = "0.1.0"
 edition = "2024"
+description = "Agent-friendly email CLI for Resend"
+license = "MIT"
+repository = "https://github.com/199-biotechnologies/email-cli"
+homepage = "https://github.com/199-biotechnologies/email-cli"
+keywords = ["email", "cli", "resend", "agent", "automation"]
+categories = ["command-line-utilities", "email"]
 
 [dependencies]
 anyhow = "1.0.98"
