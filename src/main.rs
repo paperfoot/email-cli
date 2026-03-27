@@ -86,11 +86,17 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             DraftCommand::List(args) => app.draft_list(args)?,
             DraftCommand::Show(args) => app.draft_show(args)?,
             DraftCommand::Send(args) => app.draft_send(args)?,
+            DraftCommand::Edit(args) => app.draft_edit(args)?,
+            DraftCommand::Delete(args) => app.draft_delete(args)?,
         },
         Command::Sync(args) => app.sync(args)?,
         Command::Inbox { command } => match command {
             InboxCommand::Ls(args) => app.inbox_list(args)?,
             InboxCommand::Read(args) => app.inbox_read(args)?,
+            InboxCommand::Delete(args) => app.inbox_delete(args)?,
+            InboxCommand::Archive(args) => app.inbox_archive(args)?,
+            InboxCommand::Search(args) => app.inbox_search(args)?,
+            InboxCommand::Purge(args) => app.inbox_purge(args)?,
         },
         Command::Attachments { command } => match command {
             AttachmentsCommand::List(args) => app.attachments_list(args)?,
@@ -124,6 +130,17 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             ApiKeyCommand::List => app.api_key_list()?,
             ApiKeyCommand::Create(args) => app.api_key_create(args)?,
             ApiKeyCommand::Delete(args) => app.api_key_delete(args)?,
+        },
+        Command::Outbox { command } => match command {
+            OutboxCommand::List => app.outbox_list()?,
+            OutboxCommand::Retry(args) => app.outbox_retry(args)?,
+            OutboxCommand::Flush => app.outbox_flush()?,
+        },
+        Command::Webhook { command } => match command {
+            WebhookCommand::Listen(args) => app.webhook_listen(args)?,
+        },
+        Command::Events { command } => match command {
+            EventsCommand::List(args) => app.events_list(args)?,
         },
         Command::AgentInfo | Command::Skill { .. } | Command::Completions { .. } => {
             unreachable!()

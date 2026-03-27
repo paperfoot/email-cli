@@ -4,10 +4,12 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::app::App;
-use crate::cli::{DraftCreateArgs, DraftListArgs, DraftSendArgs, DraftShowArgs};
+use crate::cli::{
+    DraftCreateArgs, DraftDeleteArgs, DraftEditArgs, DraftListArgs, DraftSendArgs, DraftShowArgs,
+};
 use crate::helpers::{
-    ensure_reply_account_matches, normalize_email, remove_draft_attachment_snapshot,
-    reply_headers_for_message, snapshot_draft_attachments, to_json,
+    ensure_reply_account_matches, normalize_email, normalize_emails,
+    remove_draft_attachment_snapshot, reply_headers_for_message, snapshot_draft_attachments, to_json,
 };
 use crate::models::ResolvedCompose;
 use crate::output::print_success_or;
@@ -124,6 +126,71 @@ impl App {
             println!("sent draft as message {}", message.id);
         });
 
+        Ok(())
+    }
+
+    pub fn draft_edit(&self, args: DraftEditArgs) -> Result<()> {
+        let draft = self.get_draft(&args.id)?;
+
+        let subject = args.subject.unwrap_or(draft.subject);
+        let text_body = args.text.or(draft.text_body);
+        let html_body = args.html.or(draft.html_body);
+        let to = args
+            .to
+            .map(|v| normalize_emails(&v))
+            .unwrap_or(draft.to);
+        let cc = args
+            .cc
+            .map(|v| normalize_emails(&v))
+            .unwrap_or(draft.cc);
+        let bcc = args
+            .bcc
+            .map(|v| normalize_emails(&v))
+            .unwrap_or(draft.bcc);
+
+        self.conn.execute(
+            "UPDATE drafts SET subject = ?1, text_body = ?2, html_body = ?3,
+             to_json = ?4, cc_json = ?5, bcc_json = ?6, updated_at = CURRENT_TIMESTAMP
+             WHERE id = ?7",
+            params![
+                subject,
+                text_body,
+                html_body,
+                to_json(&to)?,
+                to_json(&cc)?,
+                to_json(&bcc)?,
+                args.id,
+            ],
+        )?;
+
+        print_success_or(
+            self.format,
+            &serde_json::json!({"id": args.id, "updated": true}),
+            |_| {
+                println!("updated draft {}", args.id);
+            },
+        );
+        Ok(())
+    }
+
+    pub fn draft_delete(&self, args: DraftDeleteArgs) -> Result<()> {
+        let count = self
+            .conn
+            .execute("DELETE FROM drafts WHERE id = ?1", params![args.id])?;
+        if count == 0 {
+            anyhow::bail!("draft {} not found", args.id);
+        }
+        remove_draft_attachment_snapshot(
+            self.db_path.parent().unwrap_or(Path::new(".")),
+            &args.id,
+        )?;
+        print_success_or(
+            self.format,
+            &serde_json::json!({"id": args.id, "deleted": true}),
+            |_| {
+                println!("deleted draft {}", args.id);
+            },
+        );
         Ok(())
     }
 }

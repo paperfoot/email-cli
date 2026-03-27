@@ -102,7 +102,7 @@ pub struct DomainCapabilities {
     pub receiving: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SendEmailRequest {
     pub from: String,
     pub to: Vec<String>,
@@ -121,7 +121,7 @@ pub struct SendEmailRequest {
     pub attachments: Vec<SendAttachment>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SendAttachment {
     pub filename: String,
     pub content: String,

@@ -70,6 +70,21 @@ pub enum Command {
         #[command(subcommand)]
         command: ApiKeyCommand,
     },
+    /// Manage the durable send outbox
+    Outbox {
+        #[command(subcommand)]
+        command: OutboxCommand,
+    },
+    /// Webhook event listener
+    Webhook {
+        #[command(subcommand)]
+        command: WebhookCommand,
+    },
+    /// View delivery events
+    Events {
+        #[command(subcommand)]
+        command: EventsCommand,
+    },
     /// Machine-readable capability manifest
     AgentInfo,
     /// Install skill file to agent platforms
@@ -204,6 +219,30 @@ pub enum DraftCommand {
     List(DraftListArgs),
     Show(DraftShowArgs),
     Send(DraftSendArgs),
+    Edit(DraftEditArgs),
+    Delete(DraftDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct DraftEditArgs {
+    pub id: String,
+    #[arg(long)]
+    pub subject: Option<String>,
+    #[arg(long)]
+    pub text: Option<String>,
+    #[arg(long)]
+    pub html: Option<String>,
+    #[arg(long)]
+    pub to: Option<Vec<String>>,
+    #[arg(long)]
+    pub cc: Option<Vec<String>>,
+    #[arg(long)]
+    pub bcc: Option<Vec<String>>,
+}
+
+#[derive(Args)]
+pub struct DraftDeleteArgs {
+    pub id: String,
 }
 
 #[derive(Args)]
@@ -236,12 +275,22 @@ pub struct SyncArgs {
     pub account: Option<String>,
     #[arg(long, default_value = "25")]
     pub limit: usize,
+    /// Watch for new messages continuously
+    #[arg(long)]
+    pub watch: bool,
+    /// Poll interval in seconds (requires --watch)
+    #[arg(long, default_value = "60")]
+    pub interval: Option<u64>,
 }
 
 #[derive(Subcommand)]
 pub enum InboxCommand {
     Ls(InboxListArgs),
     Read(InboxReadArgs),
+    Delete(InboxDeleteArgs),
+    Archive(InboxArchiveArgs),
+    Search(InboxSearchArgs),
+    Purge(InboxPurgeArgs),
 }
 
 #[derive(Args)]
@@ -252,6 +301,8 @@ pub struct InboxListArgs {
     pub limit: usize,
     #[arg(long)]
     pub unread: bool,
+    #[arg(long)]
+    pub archived: bool,
 }
 
 #[derive(Args)]
@@ -259,6 +310,36 @@ pub struct InboxReadArgs {
     pub id: i64,
     #[arg(long)]
     pub mark_read: bool,
+    #[arg(long)]
+    pub raw: bool,
+}
+
+#[derive(Args)]
+pub struct InboxDeleteArgs {
+    pub id: i64,
+}
+
+#[derive(Args)]
+pub struct InboxArchiveArgs {
+    pub id: i64,
+}
+
+#[derive(Args)]
+pub struct InboxSearchArgs {
+    pub query: String,
+    #[arg(long)]
+    pub account: Option<String>,
+    #[arg(long, default_value = "25")]
+    pub limit: usize,
+}
+
+#[derive(Args)]
+pub struct InboxPurgeArgs {
+    /// Delete messages older than this date (YYYY-MM-DD)
+    #[arg(long)]
+    pub before: String,
+    #[arg(long)]
+    pub account: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -451,4 +532,46 @@ pub struct ApiKeyCreateArgs {
 #[derive(Args)]
 pub struct ApiKeyDeleteArgs {
     pub id: String,
+}
+
+// ── Outbox commands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum OutboxCommand {
+    List,
+    Retry(OutboxRetryArgs),
+    Flush,
+}
+
+#[derive(Args)]
+pub struct OutboxRetryArgs {
+    pub id: String,
+}
+
+// ── Webhook commands ──────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum WebhookCommand {
+    Listen(WebhookListenArgs),
+}
+
+#[derive(Args)]
+pub struct WebhookListenArgs {
+    #[arg(long, default_value = "8080")]
+    pub port: u16,
+}
+
+// ── Events commands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum EventsCommand {
+    List(EventsListArgs),
+}
+
+#[derive(Args)]
+pub struct EventsListArgs {
+    #[arg(long)]
+    pub message: Option<i64>,
+    #[arg(long, default_value = "50")]
+    pub limit: usize,
 }

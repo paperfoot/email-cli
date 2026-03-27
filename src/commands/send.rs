@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use crate::app::App;
 use crate::cli::{ComposeArgs, ReplyArgs, SendArgs};
 use crate::helpers::{
-    append_signature_html, append_signature_text, build_idempotency_key, build_send_attachments,
+    append_signature_html, append_signature_text, build_send_attachments,
     ensure_reply_account_matches, format_sender, normalize_email, normalize_emails,
     now_timestamp, read_optional_content, reply_headers_for_message, reply_recipients,
     reply_subject,
@@ -135,23 +135,32 @@ impl App {
             headers,
             attachments: build_send_attachments(&compose.attachments)?,
         };
-        let idempotency_key = build_idempotency_key(&request)?;
+        let idempotency_key = self.outbox_send(&request, &compose.account.email)?;
 
-        let response = client.send_email(&request, &idempotency_key)?;
-        let detail = fetch_sent_detail(&client, &response.id).unwrap_or_else(|| SentEmail {
-            id: response.id.clone(),
-            from: Some(request.from.clone()),
-            to: request.to.clone(),
-            cc: request.cc.clone(),
-            bcc: request.bcc.clone(),
-            reply_to: Vec::new(),
-            subject: Some(request.subject.clone()),
-            created_at: Some(now_timestamp()),
-            last_event: Some("sent".to_string()),
-            html: request.html.clone(),
-            text: request.text.clone(),
-        });
-        let reply_headers = reply_context.map(|(_, reply)| reply);
-        self.store_sent_message(&compose.account, detail, reply_headers)
+        match client.send_email(&request, &idempotency_key) {
+            Ok(response) => {
+                self.outbox_mark_sent(&idempotency_key)?;
+                let detail =
+                    fetch_sent_detail(&client, &response.id).unwrap_or_else(|| SentEmail {
+                        id: response.id.clone(),
+                        from: Some(request.from.clone()),
+                        to: request.to.clone(),
+                        cc: request.cc.clone(),
+                        bcc: request.bcc.clone(),
+                        reply_to: Vec::new(),
+                        subject: Some(request.subject.clone()),
+                        created_at: Some(now_timestamp()),
+                        last_event: Some("sent".to_string()),
+                        html: request.html.clone(),
+                        text: request.text.clone(),
+                    });
+                let reply_headers = reply_context.map(|(_, reply)| reply);
+                self.store_sent_message(&compose.account, detail, reply_headers)
+            }
+            Err(err) => {
+                self.outbox_mark_failed(&idempotency_key, &err.to_string())?;
+                Err(err)
+            }
+        }
     }
 }

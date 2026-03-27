@@ -5,13 +5,34 @@ use crate::app::App;
 use crate::cli::SyncArgs;
 use crate::helpers::{normalize_email, received_email_matches_account};
 use crate::models::{AccountRecord, SyncSummary};
-use crate::output::print_success_or;
+use crate::output::{Format, print_success_or};
 use crate::resend::ResendClient;
 
 impl App {
     pub fn sync(&self, args: SyncArgs) -> Result<()> {
-        let accounts = if let Some(account) = args.account {
-            vec![self.get_account(&normalize_email(&account))?]
+        let account_filter = args.account.clone();
+        let limit = args.limit;
+        let watch = args.watch;
+        let interval = args.interval.unwrap_or(60);
+
+        self.sync_once(account_filter.as_deref(), limit)?;
+
+        if watch {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(interval));
+                if matches!(self.format, Format::Human) {
+                    eprintln!("polling...");
+                }
+                self.sync_once(account_filter.as_deref(), limit)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn sync_once(&self, account_filter: Option<&str>, limit: usize) -> Result<()> {
+        let accounts = if let Some(account) = account_filter {
+            vec![self.get_account(&normalize_email(account))?]
         } else {
             self.list_accounts()?
         };
@@ -32,9 +53,9 @@ impl App {
 
         for account in accounts {
             let client = self.client_for_profile(&account.profile_name)?;
-            summary.sent_messages += self.sync_sent_account(&client, &account, args.limit)?;
+            summary.sent_messages += self.sync_sent_account(&client, &account, limit)?;
             summary.received_messages +=
-                self.sync_received_account(&client, &account, args.limit)?;
+                self.sync_received_account(&client, &account, limit)?;
         }
 
         print_success_or(self.format, &summary, |summary| {

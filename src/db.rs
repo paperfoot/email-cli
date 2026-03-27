@@ -107,6 +107,40 @@ pub const SCHEMA_DDL: &str = "
 
     CREATE INDEX IF NOT EXISTS idx_attachments_message
     ON attachments(message_id);
+
+    -- v0.2.0: archived column (safe to re-run)
+    CREATE INDEX IF NOT EXISTS idx_messages_archived
+    ON messages(archived, created_at DESC);
+
+    -- v0.2.0: outbox table
+    CREATE TABLE IF NOT EXISTS outbox (
+        id TEXT PRIMARY KEY,
+        account_email TEXT NOT NULL,
+        request_json TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        attempts INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- v0.2.0: events table
+    CREATE TABLE IF NOT EXISTS events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email_remote_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_email
+    ON events(email_remote_id);
+
+    -- v0.2.0: FTS5 full-text search
+    CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+        subject, text_body, html_body, from_addr, to_json, cc_json,
+        content=messages, content_rowid=id
+    );
 ";
 
 // ── Row mappers ──────────────────────────────────────────────────────────────
@@ -248,6 +282,23 @@ impl App {
                 map_message,
             )
             .with_context(|| format!("message {} not found", id))
+    }
+
+    pub fn get_message_by_remote_id(&self, remote_id: &str) -> Result<MessageRecord> {
+        self.conn
+            .query_row(
+                "
+                SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
+                       reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
+                       references_json, last_event, is_read, created_at, synced_at
+                FROM messages
+                WHERE remote_id = ?1
+                LIMIT 1
+                ",
+                params![remote_id],
+                map_message,
+            )
+            .context("message not found")
     }
 
     pub fn list_messages(
