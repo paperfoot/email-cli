@@ -11,7 +11,6 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::fs::OpenOptions;
@@ -1379,14 +1378,17 @@ impl App {
         let headers = email.headers.clone().unwrap_or_default();
         let references = header_references(&headers);
         let in_reply_to = header_string(&headers, "in-reply-to");
+        let to = effective_received_to(&email);
+        let cc = effective_received_cc(&email);
+        let bcc = effective_received_bcc(&email);
         let record = self.upsert_message(MessageUpsert {
             remote_id: email.id.clone(),
             direction: "received".to_string(),
             account_email: account.email.clone(),
             from_addr: email.from.unwrap_or_default(),
-            to: email.to.clone(),
-            cc: email.cc.clone(),
-            bcc: email.bcc.clone(),
+            to,
+            cc,
+            bcc,
             reply_to: email.reply_to.clone(),
             subject: email.subject.unwrap_or_default(),
             text_body: email.text.clone(),
@@ -1784,12 +1786,8 @@ impl App {
                     stop = true;
                     break;
                 }
-                let matches = matching_account_email(&item.to, &item.cc, &item.bcc, &account.email);
-                if !matches {
-                    continue;
-                }
                 let detail = client.get_received_email(&item.id)?;
-                if !matching_account_email(&detail.to, &detail.cc, &detail.bcc, &account.email) {
+                if !received_email_matches_account(&detail, &account.email) {
                     continue;
                 }
                 let message_id = self.store_received_message(account, detail.clone())?;
@@ -2400,6 +2398,79 @@ fn matching_account_email(
         .any(|value| normalize_email(value) == account_email)
 }
 
+fn received_email_matches_account(email: &ReceivedEmail, account_email: &str) -> bool {
+    let headers = email.headers.as_ref();
+    let visible_to = headers
+        .map(|headers| header_email_list(headers, "to"))
+        .unwrap_or_default();
+    let visible_cc = headers
+        .map(|headers| header_email_list(headers, "cc"))
+        .unwrap_or_default();
+    let visible_bcc = headers
+        .map(|headers| header_email_list(headers, "bcc"))
+        .unwrap_or_default();
+
+    matching_account_email(&email.to, &email.cc, &email.bcc, account_email)
+        || matching_account_email(&visible_to, &visible_cc, &visible_bcc, account_email)
+}
+
+fn effective_received_to(email: &ReceivedEmail) -> Vec<String> {
+    let header_to = email
+        .headers
+        .as_ref()
+        .map(|headers| header_email_list(headers, "to"))
+        .unwrap_or_default();
+    if header_to.is_empty() {
+        normalize_emails(&email.to)
+    } else {
+        header_to
+    }
+}
+
+fn effective_received_cc(email: &ReceivedEmail) -> Vec<String> {
+    let header_cc = email
+        .headers
+        .as_ref()
+        .map(|headers| header_email_list(headers, "cc"))
+        .unwrap_or_default();
+    if header_cc.is_empty() {
+        normalize_emails(&email.cc)
+    } else {
+        header_cc
+    }
+}
+
+fn effective_received_bcc(email: &ReceivedEmail) -> Vec<String> {
+    let header_bcc = email
+        .headers
+        .as_ref()
+        .map(|headers| header_email_list(headers, "bcc"))
+        .unwrap_or_default();
+    if header_bcc.is_empty() {
+        normalize_emails(&email.bcc)
+    } else {
+        header_bcc
+    }
+}
+
+fn header_email_list(headers: &BTreeMap<String, Value>, key: &str) -> Vec<String> {
+    header_values(headers, key, false)
+        .into_iter()
+        .flat_map(|value| split_address_header(&value))
+        .map(|value| normalize_email(&value))
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn split_address_header(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string)
+        .collect()
+}
+
 fn ensure_reply_account_matches(message: &MessageRecord, account: &AccountRecord) -> Result<()> {
     if message.account_email != account.email {
         bail!(
@@ -2528,9 +2599,8 @@ fn remove_draft_attachment_snapshot(base_dir: &Path, draft_id: &str) -> Result<(
 }
 
 fn build_idempotency_key(request: &SendEmailRequest) -> Result<String> {
-    let payload = serde_json::to_vec(request).context("failed to serialize send request")?;
-    let digest = Sha256::digest(payload);
-    Ok(format!("email-cli-{:x}", digest))
+    let _ = request;
+    Ok(format!("email-cli-{}", Uuid::new_v4()))
 }
 
 fn deserialize_string_vec<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
