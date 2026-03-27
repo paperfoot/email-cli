@@ -96,6 +96,35 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             AttachmentsCommand::List(args) => app.attachments_list(args)?,
             AttachmentsCommand::Get(args) => app.attachments_get(args)?,
         },
+        Command::Domain { command } => match command {
+            DomainCommand::List => app.domain_list()?,
+            DomainCommand::Get(args) => app.domain_get(args)?,
+            DomainCommand::Create(args) => app.domain_create(args)?,
+            DomainCommand::Verify(args) => app.domain_verify(args)?,
+            DomainCommand::Delete(args) => app.domain_delete(args)?,
+            DomainCommand::Update(args) => app.domain_update(args)?,
+        },
+        Command::Audience { command } => match command {
+            AudienceCommand::List => app.audience_list()?,
+            AudienceCommand::Get(args) => app.audience_get(args)?,
+            AudienceCommand::Create(args) => app.audience_create(args)?,
+            AudienceCommand::Delete(args) => app.audience_delete(args)?,
+        },
+        Command::Contact { command } => match command {
+            ContactCommand::List(args) => app.contact_list(args)?,
+            ContactCommand::Get(args) => app.contact_get(args)?,
+            ContactCommand::Create(args) => app.contact_create(args)?,
+            ContactCommand::Update(args) => app.contact_update(args)?,
+            ContactCommand::Delete(args) => app.contact_delete(args)?,
+        },
+        Command::Batch { command } => match command {
+            BatchCommand::Send(args) => app.batch_send(args)?,
+        },
+        Command::ApiKey { command } => match command {
+            ApiKeyCommand::List => app.api_key_list()?,
+            ApiKeyCommand::Create(args) => app.api_key_create(args)?,
+            ApiKeyCommand::Delete(args) => app.api_key_delete(args)?,
+        },
         Command::AgentInfo | Command::Skill { .. } | Command::Completions { .. } => {
             unreachable!()
         }

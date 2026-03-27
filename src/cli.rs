@@ -45,6 +45,31 @@ pub enum Command {
         #[command(subcommand)]
         command: AttachmentsCommand,
     },
+    /// Manage Resend domains
+    Domain {
+        #[command(subcommand)]
+        command: DomainCommand,
+    },
+    /// Manage audiences
+    Audience {
+        #[command(subcommand)]
+        command: AudienceCommand,
+    },
+    /// Manage contacts within an audience
+    Contact {
+        #[command(subcommand)]
+        command: ContactCommand,
+    },
+    /// Send batch emails
+    Batch {
+        #[command(subcommand)]
+        command: BatchCommand,
+    },
+    /// Manage Resend API keys
+    ApiKey {
+        #[command(subcommand)]
+        command: ApiKeyCommand,
+    },
     /// Machine-readable capability manifest
     AgentInfo,
     /// Install skill file to agent platforms
@@ -261,4 +286,169 @@ pub enum SkillAction {
     Install,
     /// Check which platforms have the skill installed
     Status,
+}
+
+// ── Domain commands ────────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum DomainCommand {
+    List,
+    Get(DomainGetArgs),
+    Create(DomainCreateArgs),
+    Verify(DomainVerifyArgs),
+    Delete(DomainDeleteArgs),
+    Update(DomainUpdateArgs),
+}
+
+#[derive(Args)]
+pub struct DomainGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct DomainCreateArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub region: Option<String>,
+}
+
+#[derive(Args)]
+pub struct DomainVerifyArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct DomainDeleteArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct DomainUpdateArgs {
+    pub id: String,
+    #[arg(long)]
+    pub open_tracking: Option<bool>,
+    #[arg(long)]
+    pub click_tracking: Option<bool>,
+}
+
+// ── Audience commands ──────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum AudienceCommand {
+    List,
+    Get(AudienceGetArgs),
+    Create(AudienceCreateArgs),
+    Delete(AudienceDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct AudienceGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct AudienceCreateArgs {
+    #[arg(long)]
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct AudienceDeleteArgs {
+    pub id: String,
+}
+
+// ── Contact commands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum ContactCommand {
+    List(ContactListArgs),
+    Get(ContactGetArgs),
+    Create(ContactCreateArgs),
+    Update(ContactUpdateArgs),
+    Delete(ContactDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct ContactListArgs {
+    #[arg(long)]
+    pub audience: String,
+}
+
+#[derive(Args)]
+pub struct ContactGetArgs {
+    #[arg(long)]
+    pub audience: String,
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct ContactCreateArgs {
+    #[arg(long)]
+    pub audience: String,
+    #[arg(long)]
+    pub email: String,
+    #[arg(long)]
+    pub first_name: Option<String>,
+    #[arg(long)]
+    pub last_name: Option<String>,
+    #[arg(long)]
+    pub unsubscribed: Option<bool>,
+}
+
+#[derive(Args)]
+pub struct ContactUpdateArgs {
+    #[arg(long)]
+    pub audience: String,
+    pub id: String,
+    #[arg(long)]
+    pub first_name: Option<String>,
+    #[arg(long)]
+    pub last_name: Option<String>,
+    #[arg(long)]
+    pub unsubscribed: Option<bool>,
+}
+
+#[derive(Args)]
+pub struct ContactDeleteArgs {
+    #[arg(long)]
+    pub audience: String,
+    pub id: String,
+}
+
+// ── Batch commands ─────────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum BatchCommand {
+    Send(BatchSendArgs),
+}
+
+#[derive(Args)]
+pub struct BatchSendArgs {
+    /// Path to a JSON file containing an array of email objects
+    #[arg(long)]
+    pub file: std::path::PathBuf,
+}
+
+// ── API key commands ───────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum ApiKeyCommand {
+    List,
+    Create(ApiKeyCreateArgs),
+    Delete(ApiKeyDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct ApiKeyCreateArgs {
+    #[arg(long)]
+    pub name: String,
+    /// full-access or sending-access
+    #[arg(long, default_value = "full-access")]
+    pub permission: String,
+}
+
+#[derive(Args)]
+pub struct ApiKeyDeleteArgs {
+    pub id: String,
 }

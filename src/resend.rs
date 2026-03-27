@@ -83,6 +83,83 @@ impl ResendClient {
         Ok(payload.data)
     }
 
+    // Domains
+    pub fn get_domain(&self, id: &str) -> Result<DomainDetail> {
+        self.get_json(&format!("/domains/{}", id), &[])
+    }
+
+    pub fn create_domain(&self, payload: &CreateDomainRequest) -> Result<CreateDomainResponse> {
+        self.post_json("/domains", payload, None)
+    }
+
+    pub fn verify_domain(&self, id: &str) -> Result<DomainDetail> {
+        self.post_json(&format!("/domains/{}/verify", id), &serde_json::json!({}), None)
+    }
+
+    pub fn delete_domain(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/domains/{}", id))
+    }
+
+    pub fn update_domain(&self, id: &str, payload: &UpdateDomainRequest) -> Result<DomainDetail> {
+        self.patch_json(&format!("/domains/{}", id), payload)
+    }
+
+    // Audiences
+    pub fn list_audiences(&self) -> Result<AudienceList> {
+        self.get_json("/audiences", &[])
+    }
+
+    pub fn get_audience(&self, id: &str) -> Result<Audience> {
+        self.get_json(&format!("/audiences/{}", id), &[])
+    }
+
+    pub fn create_audience(&self, payload: &CreateAudienceRequest) -> Result<CreateAudienceResponse> {
+        self.post_json("/audiences", payload, None)
+    }
+
+    pub fn delete_audience(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/audiences/{}", id))
+    }
+
+    // Contacts
+    pub fn list_contacts(&self, audience_id: &str) -> Result<ContactList> {
+        self.get_json(&format!("/audiences/{}/contacts", audience_id), &[])
+    }
+
+    pub fn get_contact(&self, audience_id: &str, contact_id: &str) -> Result<Contact> {
+        self.get_json(&format!("/audiences/{}/contacts/{}", audience_id, contact_id), &[])
+    }
+
+    pub fn create_contact(&self, audience_id: &str, payload: &CreateContactRequest) -> Result<CreateContactResponse> {
+        self.post_json(&format!("/audiences/{}/contacts", audience_id), payload, None)
+    }
+
+    pub fn update_contact(&self, audience_id: &str, contact_id: &str, payload: &UpdateContactRequest) -> Result<Contact> {
+        self.patch_json(&format!("/audiences/{}/contacts/{}", audience_id, contact_id), payload)
+    }
+
+    pub fn delete_contact(&self, audience_id: &str, contact_id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/audiences/{}/contacts/{}", audience_id, contact_id))
+    }
+
+    // Batch
+    pub fn send_batch(&self, emails: &[serde_json::Value]) -> Result<BatchSendResponse> {
+        self.post_json("/emails/batch", &emails, None)
+    }
+
+    // API Keys
+    pub fn list_api_keys(&self) -> Result<ApiKeyList> {
+        self.get_json("/api-keys", &[])
+    }
+
+    pub fn create_api_key(&self, payload: &CreateApiKeyRequest) -> Result<CreateApiKeyResponse> {
+        self.post_json("/api-keys", payload, None)
+    }
+
+    pub fn delete_api_key(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/api-keys/{}", id))
+    }
+
     pub fn download_attachment(&self, url: &str) -> Result<Vec<u8>> {
         for attempt in 0..5 {
             let response = match self.client.get(url).send() {
@@ -157,6 +234,63 @@ impl ResendClient {
                     continue;
                 }
                 Err(err) => return Err(err).with_context(|| format!("POST {} failed", path)),
+            };
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                sleep(retry_delay(response.headers(), attempt));
+                continue;
+            }
+            if response.status().is_server_error() {
+                sleep(backoff(attempt));
+                continue;
+            }
+            return decode_json(response);
+        }
+        bail!("Resend API kept rate limiting for {}", path)
+    }
+
+    fn delete_request(&self, path: &str) -> Result<DeleteResponse> {
+        for attempt in 0..5 {
+            let response = match self
+                .client
+                .delete(format!("https://api.resend.com{}", path))
+                .bearer_auth(&self.api_key)
+                .send()
+            {
+                Ok(response) => response,
+                Err(err) if should_retry_error(&err) => {
+                    sleep(backoff(attempt));
+                    continue;
+                }
+                Err(err) => return Err(err).with_context(|| format!("DELETE {} failed", path)),
+            };
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                sleep(retry_delay(response.headers(), attempt));
+                continue;
+            }
+            if response.status().is_server_error() {
+                sleep(backoff(attempt));
+                continue;
+            }
+            return decode_json(response);
+        }
+        bail!("Resend API kept rate limiting for {}", path)
+    }
+
+    fn patch_json<T: DeserializeOwned, B: Serialize>(&self, path: &str, body: &B) -> Result<T> {
+        for attempt in 0..5 {
+            let response = match self
+                .client
+                .patch(format!("https://api.resend.com{}", path))
+                .bearer_auth(&self.api_key)
+                .json(body)
+                .send()
+            {
+                Ok(response) => response,
+                Err(err) if should_retry_error(&err) => {
+                    sleep(backoff(attempt));
+                    continue;
+                }
+                Err(err) => return Err(err).with_context(|| format!("PATCH {} failed", path)),
             };
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 sleep(retry_delay(response.headers(), attempt));

@@ -191,6 +191,169 @@ pub struct ReceivedAttachment {
     pub download_url: Option<String>,
 }
 
+// ── Domain detail ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DomainDetail {
+    pub id: String,
+    pub name: String,
+    pub status: Option<String>,
+    pub region: Option<String>,
+    #[serde(default)]
+    pub records: Vec<DnsRecord>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DnsRecord {
+    pub record: Option<String>,
+    pub name: Option<String>,
+    #[serde(alias = "type")]
+    pub record_type: Option<String>,
+    pub value: Option<String>,
+    pub status: Option<String>,
+    pub ttl: Option<String>,
+    pub priority: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateDomainRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub region: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateDomainResponse {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateDomainRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_tracking: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub click_tracking: Option<bool>,
+}
+
+// ── Audience types ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Audience {
+    pub id: String,
+    pub name: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct AudienceList {
+    #[serde(default)]
+    pub data: Vec<Audience>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateAudienceRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateAudienceResponse {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct DeleteResponse {
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+// ── Contact types ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Contact {
+    pub id: String,
+    pub email: String,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub unsubscribed: Option<bool>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ContactList {
+    #[serde(default)]
+    pub data: Vec<Contact>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateContactRequest {
+    pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsubscribed: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateContactResponse {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateContactRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsubscribed: Option<bool>,
+}
+
+// ── Batch send ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BatchSendResponse {
+    #[serde(default)]
+    pub data: Vec<BatchSendItem>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct BatchSendItem {
+    pub id: String,
+}
+
+// ── API key types ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ApiKey {
+    pub id: String,
+    pub name: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ApiKeyList {
+    #[serde(default)]
+    pub data: Vec<ApiKey>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateApiKeyRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub permission: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateApiKeyResponse {
+    pub id: String,
+    pub token: String,
+}
+
 // ── Internal types ─────────────────────────────────────────────────────────
 
 #[derive(Clone)]

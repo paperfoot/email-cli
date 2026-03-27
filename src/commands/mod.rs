@@ -1,7 +1,12 @@
 pub mod account;
 pub mod agent_info;
+pub mod api_key;
 pub mod attachments;
+pub mod audience;
+pub mod batch;
+pub mod contact;
 pub mod draft;
+pub mod domain;
 pub mod inbox;
 pub mod profile;
 pub mod send;
