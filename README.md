@@ -1,43 +1,52 @@
-<h1 align="center">email-cli</h1>
+<div align="center">
 
-<p align="center">
-  <strong>Agent-friendly email CLI for Resend. One binary. Local state. 42 commands.</strong><br>
-  <em>Built by <a href="https://github.com/199-biotechnologies">Paperfoot AI (SG) Pte. Ltd.</a></em>
-</p>
+# Email CLI
 
-<p align="center">
-  <a href="#install">Install</a> &middot;
-  <a href="#quick-start">Quick Start</a> &middot;
-  <a href="#commands">Commands</a> &middot;
-  <a href="#agent-integration">Agent Integration</a>
-</p>
+**Send, receive, and manage email from your terminal. Built for AI agents.**
+
+<br />
+
+[![Star this repo](https://img.shields.io/github/stars/199-biotechnologies/email-cli?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/199-biotechnologies/email-cli/stargazers)
+&nbsp;&nbsp;
+[![Follow @longevityboris](https://img.shields.io/badge/Follow_%40longevityboris-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/longevityboris)
+
+<br />
+
+[![Crates.io](https://img.shields.io/crates/v/email-cli?style=for-the-badge&logo=rust&logoColor=white&label=crates.io)](https://crates.io/crates/email-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Rust](https://img.shields.io/badge/Rust-1.85+-orange?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Homebrew](https://img.shields.io/badge/Homebrew-tap-FBB040?style=for-the-badge&logo=homebrew&logoColor=white)](https://github.com/199-biotechnologies/homebrew-tap)
 
 ---
 
-## What it does
+A single binary that gives your AI agent a real email address. Send, receive, reply, draft, sync, and manage contacts through Resend -- all from the command line. No IMAP. No browser inbox. No MCP server. Just a local SQLite mailbox and 42 commands.
 
-Give an AI agent or terminal operator a Resend-backed email address and let them handle real email without IMAP, a browser inbox, or an MCP server.
+[Why This Exists](#why-this-exists) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Configuration](#configuration) | [Contributing](#contributing)
 
-- send, receive, reply, draft, sync, attachments
-- manage domains, audiences, contacts, API keys
-- batch send from JSON files
-- local SQLite mailbox with cursor-based sync
-- structured JSON output with semantic exit codes
-- self-describing capability manifest via `agent-info`
-- skill auto-install for Claude Code, Codex CLI, and Gemini CLI
+</div>
 
-This is not an IMAP server. It is a practical mailbox layer for agents.
+## Why This Exists
+
+AI agents need to send and receive email. The existing options are bad:
+
+- **IMAP/SMTP** requires complex server configuration, credential management, and connection handling. Agents struggle with it.
+- **Email APIs** work for sending, but agents need a local mailbox to track threads, drafts, and read status.
+- **Browser-based inboxes** are not scriptable. Agents cannot use them.
+
+Email CLI solves this by wrapping the [Resend API](https://resend.com) in a local-first CLI. Your agent gets a verified email address, a local SQLite mailbox, and structured JSON output with semantic exit codes. It calls `agent-info` once to learn every command, then works from memory.
+
+You can also use it as a human. It works the same way.
 
 ## Install
 
-### Homebrew
+### Homebrew (macOS/Linux)
 
 ```bash
 brew tap 199-biotechnologies/tap
 brew install email-cli
 ```
 
-### Cargo
+### Cargo (any platform)
 
 ```bash
 cargo install email-cli
@@ -49,130 +58,147 @@ cargo install email-cli
 git clone https://github.com/199-biotechnologies/email-cli.git
 cd email-cli
 cargo build --release
-# binary is at ./target/release/email-cli
+# binary: ./target/release/email-cli
 ```
 
-## Quick start
+## Quick Start
 
 ```bash
-# Add a profile (your Resend API key)
+# 1. Add your Resend API key
 email-cli profile add default --api-key-env RESEND_API_KEY
 
-# Check domains
+# 2. Verify domain connectivity
 email-cli profile test default
 
-# Add an account
+# 3. Register a sending identity
 email-cli account add agent@yourdomain.com \
   --profile default \
   --name "Agent" \
   --default
 
-# Send
+# 4. Send an email
 email-cli send \
   --to someone@example.com \
   --subject "Hello from email-cli" \
-  --text "Sent by an agent."
+  --text "Sent from the terminal."
 
-# Sync and read
+# 5. Sync and read incoming mail
 email-cli sync
 email-cli inbox ls
 email-cli inbox read 1 --mark-read
 
-# Reply
+# 6. Reply
 email-cli reply 1 --text "Got it, thanks."
+```
 
-# Drafts
-email-cli draft create \
-  --to someone@example.com \
-  --subject "Draft" \
-  --text "Will send later"
-email-cli draft list
-email-cli draft send <draft-id>
+## How It Works
 
-# Attachments
-email-cli attachments list 1
-email-cli attachments get 1 <attachment-id> --output ./downloads
+Three concepts:
+
+1. **Profile** -- a Resend API key. You can have multiple profiles for different Resend accounts.
+2. **Account** -- a sender/receiver identity (`agent@yourdomain.com`). Each account belongs to a profile.
+3. **Local mailbox** -- a SQLite database that stores messages, drafts, attachments, and sync cursors.
+
+Resend handles delivery. Email CLI handles the local operating model that agents need: read tracking, threading, drafts, batch sends, and structured output.
+
+```
+┌────────────────────────────────┐
+│         Your Agent / You       │
+│    (Claude, Codex, Gemini)     │
+└──────────────┬─────────────────┘
+               │  CLI commands
+               ▼
+┌────────────────────────────────┐
+│          email-cli             │
+│   42 commands, JSON output,   │
+│   semantic exit codes          │
+└──────────┬─────────┬───────────┘
+           │         │
+     ┌─────▼──┐  ┌───▼────────┐
+     │ SQLite │  │ Resend API │
+     │ local  │  │  (send,    │
+     │ store  │  │  receive,  │
+     │        │  │  domains)  │
+     └────────┘  └────────────┘
 ```
 
 ## Commands
 
-### Core email
+### Core Email
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `send` | Send an email with text/HTML body and attachments |
-| `reply <id>` | Reply to a received message with threading headers |
-| `sync` | Sync sent and received messages from Resend into local store |
-| `inbox ls` | List messages (filter by account, unread) |
+| `send` | Send email with text/HTML body and attachments |
+| `reply <id>` | Reply with proper threading headers |
+| `sync` | Pull sent and received messages into local store |
+| `inbox ls` | List messages (filter by account, unread status) |
 | `inbox read <id>` | Read a message, optionally mark as read |
 | `draft create` | Save a local draft with attachment snapshots |
-| `draft list` | List drafts |
-| `draft show <id>` | Show draft details |
+| `draft list` | List all drafts |
+| `draft show <id>` | View draft details |
 | `draft send <id>` | Send a draft and delete it |
-| `attachments list <id>` | List attachments for a message |
-| `attachments get <id> <att>` | Download an attachment |
+| `attachments list <id>` | List attachments on a message |
+| `attachments get <id> <att>` | Download an attachment to disk |
 
-### Account management
+### Account Management
 
-| Command | Description |
+| Command | What it does |
 |---|---|
 | `profile add <name>` | Add or update a Resend API profile |
-| `profile list` | List profiles |
-| `profile test <name>` | Test API connectivity by listing domains |
-| `account add <email>` | Register an email identity under a profile |
-| `account list` | List accounts |
+| `profile list` | List all profiles |
+| `profile test <name>` | Test API connectivity |
+| `account add <email>` | Register an email identity |
+| `account list` | List all accounts |
 | `account use <email>` | Set the default sending account |
-| `signature set <account>` | Set per-account signature text |
+| `signature set <account>` | Set per-account signature |
 | `signature show <account>` | Show signature |
 
-### Resend management
+### Resend Management
 
-| Command | Description |
+| Command | What it does |
 |---|---|
-| `domain list` | List domains |
+| `domain list` | List your Resend domains |
 | `domain get <id>` | Get domain details with DNS records |
-| `domain create --name <domain>` | Register a new domain |
+| `domain create --name <d>` | Register a new domain |
 | `domain verify <id>` | Trigger domain verification |
 | `domain delete <id>` | Delete a domain |
 | `domain update <id>` | Update tracking settings |
 | `audience list` | List audiences |
-| `audience get <id>` | Get audience details |
-| `audience create --name <name>` | Create an audience |
+| `audience create --name <n>` | Create an audience |
 | `audience delete <id>` | Delete an audience |
-| `contact list --audience <id>` | List contacts |
-| `contact get --audience <id> <contact_id>` | Get contact details |
-| `contact create --audience <id> --email <email>` | Create a contact |
-| `contact update --audience <id> <contact_id>` | Update a contact |
-| `contact delete --audience <id> <contact_id>` | Delete a contact |
+| `contact list --audience <id>` | List contacts in an audience |
+| `contact create` | Create a contact |
+| `contact update` | Update a contact |
+| `contact delete` | Delete a contact |
 | `batch send --file <path>` | Send batch emails from a JSON file |
 | `api-key list` | List API keys |
-| `api-key create --name <name>` | Create an API key |
+| `api-key create --name <n>` | Create an API key |
 | `api-key delete <id>` | Delete an API key |
 
-### Tooling
+### Agent Tooling
 
-| Command | Description |
+| Command | What it does |
 |---|---|
 | `agent-info` | Machine-readable JSON capability manifest |
-| `skill install` | Install skill file to Claude/Codex/Gemini |
-| `skill status` | Check skill installation |
+| `skill install` | Install skill file for Claude/Codex/Gemini |
+| `skill status` | Check skill installation status |
 | `completions <shell>` | Generate shell completions (bash/zsh/fish) |
 
-## Agent integration
+## Agent Integration
 
-`email-cli` follows the [agent-cli-framework](https://github.com/199-biotechnologies/agent-cli-framework) patterns:
+Email CLI follows the [agent-cli-framework](https://github.com/199-biotechnologies/agent-cli-framework) patterns. Any agent that speaks structured JSON can use it.
 
-### Capability discovery
+### Capability Discovery
 
 ```bash
 email-cli agent-info
 ```
 
-Returns a JSON manifest of every command, global flags, exit codes, and the output envelope format. An agent calls this once and works from memory. Per-command flags are discoverable via `email-cli <command> --help`.
+Returns a JSON manifest of every command, flag, exit code, and output format. An agent calls this once and works from memory.
 
-### Structured output
+### Structured Output
 
-When piped (or with `--json`), command output is wrapped in a JSON envelope (exceptions: `agent-info` returns raw manifest JSON, `completions` writes shell script directly):
+All commands produce JSON when piped or when you pass `--json`:
 
 ```json
 {
@@ -182,7 +208,7 @@ When piped (or with `--json`), command output is wrapped in a JSON envelope (exc
 }
 ```
 
-Errors go to stderr with suggestions:
+Errors include actionable suggestions:
 
 ```json
 {
@@ -196,61 +222,78 @@ Errors go to stderr with suggestions:
 }
 ```
 
-### Semantic exit codes
+### Semantic Exit Codes
 
 | Code | Meaning | Agent action |
 |---|---|---|
 | 0 | Success | Continue |
-| 1 | Transient error (network, IO) | Retry |
+| 1 | Transient error (network) | Retry |
 | 2 | Configuration error | Fix setup |
 | 3 | Bad input | Fix arguments |
 | 4 | Rate limited | Wait and retry |
 
-### Skill self-install
+### Skill Self-Install
 
 ```bash
 email-cli skill install
 ```
 
-Writes `SKILL.md` to `~/.claude/skills/email-cli/`, `~/.codex/skills/email-cli/`, and `~/.gemini/skills/email-cli/`. The skill is a signpost that tells agents the CLI exists and to run `agent-info` for the rest.
+Writes a skill file to `~/.claude/skills/email-cli/`, `~/.codex/skills/email-cli/`, and `~/.gemini/skills/email-cli/`. The skill tells agents the CLI exists and to run `agent-info` for full details.
 
-## Architecture
+## Configuration
 
-Three core concepts:
+### Local State
 
-1. **Profile** -- a Resend API context (API key)
-2. **Account** -- a logical sender/receiver identity (e.g. `agent@yourdomain.com`)
-3. **Local mailbox** -- SQLite database with messages, drafts, sync cursors, attachments
+All data lives in `~/.local/share/email-cli/email-cli.db` (override with `--db <path>`). Sibling directories:
 
-Resend handles delivery. `email-cli` handles the local operating model agents need.
+- `draft-attachments/` -- snapshots of files attached to drafts
+- `downloads/` -- fetched attachments (configurable via `--output`)
 
-### Local state
+### Database Tables
 
-Metadata lives in `~/.local/share/email-cli/email-cli.db` (or `--db <path>`). Sibling directories hold file state: `draft-attachments/` for draft snapshots, `downloads/` for fetched attachments (configurable via `--output`). Tables:
+| Table | Purpose |
+|---|---|
+| `profiles` | API key storage |
+| `accounts` | Email identities with signatures |
+| `messages` | Sent and received email with full metadata |
+| `drafts` | Local drafts with attachment snapshots |
+| `attachments` | Attachment metadata and local file paths |
+| `sync_state` | Per-account sync cursor positions |
 
-- `profiles` -- API key storage
-- `accounts` -- email identities with signatures
-- `messages` -- sent and received messages with full metadata
-- `drafts` -- local drafts with attachment snapshots
-- `attachments` -- attachment metadata and local paths
-- `sync_state` -- per-account cursor positions
+SQLite runs with WAL mode, busy timeout, and foreign keys enabled.
 
-SQLite is configured with WAL mode, busy timeout, and foreign keys.
+### Security
 
-## Security
+- API keys live in the local SQLite database. Treat `email-cli.db` as sensitive.
+- Use `--api-key-env VAR_NAME` or `--api-key-file path` instead of passing keys directly.
+- Attachment filenames are sanitized before writing to disk.
+- Each send includes a UUID `Idempotency-Key` header.
 
-- API keys are stored in the local SQLite database -- treat it as sensitive
-- Do not commit API keys or `.env` files
-- Attachment filenames are sanitized before local writes
-- Each send includes an `Idempotency-Key` header (UUID per call; not stable across retries)
-- Use `--api-key-env VAR_NAME` or `--api-key-file path/to/.env` (expects `NAME=value` format) instead of `--api-key` directly
+### Requirements
 
-## Requirements
+- A [Resend](https://resend.com) API key with sending enabled
+- A verified Resend domain (enable receiving on the domain for inbox sync)
+- Rust 1.85+ if building from source (edition 2024)
 
-- A Resend API key with sending enabled
-- A verified Resend domain (receiving enabled on the domain if you want inbox sync)
-- Rust 1.85+ toolchain (if building from source -- required for edition 2024)
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
 MIT -- see [LICENSE](LICENSE).
+
+---
+<div align="center">
+
+Built by [Boris Djordjevic](https://github.com/longevityboris) at [199 Biotechnologies](https://github.com/199-biotechnologies) | [Paperfoot AI](https://paperfoot.ai)
+
+<br />
+
+**If this is useful to you:**
+
+[![Star this repo](https://img.shields.io/github/stars/199-biotechnologies/email-cli?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/199-biotechnologies/email-cli/stargazers)
+&nbsp;&nbsp;
+[![Follow @longevityboris](https://img.shields.io/badge/Follow_%40longevityboris-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/longevityboris)
+
+</div>
