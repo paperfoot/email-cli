@@ -108,10 +108,6 @@ pub const SCHEMA_DDL: &str = "
     CREATE INDEX IF NOT EXISTS idx_attachments_message
     ON attachments(message_id);
 
-    -- v0.2.0: archived column (safe to re-run)
-    CREATE INDEX IF NOT EXISTS idx_messages_archived
-    ON messages(archived, created_at DESC);
-
     -- v0.2.0: outbox table
     CREATE TABLE IF NOT EXISTS outbox (
         id TEXT PRIMARY KEY,

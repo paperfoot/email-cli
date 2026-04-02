@@ -24,6 +24,9 @@ impl App {
         let _ = conn.execute_batch(
             "ALTER TABLE messages ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;"
         );
+        let _ = conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_messages_archived ON messages(archived, created_at DESC);"
+        );
         Ok(Self {
             conn,
             db_path,
