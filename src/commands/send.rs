@@ -64,6 +64,9 @@ impl App {
         } else {
             (reply_recipients(&target)?, Vec::new())
         };
+        if to.is_empty() {
+            bail!("no recipients for reply (all addresses resolved to self)");
+        }
 
         let subject = reply_subject(&target.subject);
         let compose = ResolvedCompose {

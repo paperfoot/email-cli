@@ -188,12 +188,21 @@ pub fn reply_all_recipients(
 ) -> (Vec<String>, Vec<String>) {
     let self_norm = normalize_email(self_email);
 
-    // To: Reply-To if present, otherwise From
-    let to = if !message.reply_to.is_empty() {
+    // To: for sent messages, continue with original recipients.
+    // For received, use Reply-To or From.
+    let to_raw = if message.direction == "sent" {
+        normalize_emails(&message.to)
+    } else if !message.reply_to.is_empty() {
         normalize_emails(&message.reply_to)
     } else {
         vec![normalize_email(&message.from_addr)]
     };
+
+    // Filter self and empty from To
+    let to: Vec<String> = to_raw
+        .into_iter()
+        .filter(|addr| !addr.is_empty() && *addr != self_norm)
+        .collect();
 
     let to_set: std::collections::HashSet<&str> =
         to.iter().map(String::as_str).collect();
@@ -204,7 +213,7 @@ pub fn reply_all_recipients(
         .iter()
         .chain(message.cc.iter())
         .map(|addr| normalize_email(addr))
-        .filter(|addr| addr != &self_norm && !to_set.contains(addr.as_str()))
+        .filter(|addr| !addr.is_empty() && *addr != self_norm && !to_set.contains(addr.as_str()))
         .collect();
     let cc = stable_dedup(cc);
 
@@ -300,6 +309,13 @@ pub fn value_to_strings(value: &Value, split_whitespace: bool) -> Vec<String> {
 
 pub fn reply_headers_for_message(message: &MessageRecord) -> ReplyHeaders {
     let mut refs = message.references.clone();
+    // RFC 5322 §3.6.4: when parent has no References but has In-Reply-To,
+    // include it so the thread ancestry is preserved.
+    if refs.is_empty() {
+        if let Some(irt) = message.in_reply_to.as_deref() {
+            refs.push(irt.to_string());
+        }
+    }
     if let Some(message_id) = message.rfc_message_id.as_deref() {
         refs.push(message_id.to_string());
     }
