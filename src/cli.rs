@@ -33,6 +33,8 @@ pub enum Command {
     Send(SendArgs),
     Reply(ReplyArgs),
     Forward(ForwardArgs),
+    /// Run as a menu bar daemon with notifications
+    Daemon(DaemonArgs),
     Draft {
         #[command(subcommand)]
         command: DraftCommand,
@@ -220,6 +222,16 @@ pub struct ReplyArgs {
     pub html_file: Option<PathBuf>,
     #[arg(long = "attach")]
     pub attachments: Vec<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct DaemonArgs {
+    /// Account to monitor (default: all accounts)
+    #[arg(long)]
+    pub account: Option<String>,
+    /// Poll interval in seconds
+    #[arg(long, default_value = "60")]
+    pub interval: u64,
 }
 
 #[derive(Args)]

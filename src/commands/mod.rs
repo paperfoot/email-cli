@@ -1,6 +1,7 @@
 pub mod account;
 pub mod agent_info;
 pub mod api_key;
+pub mod daemon;
 pub mod attachments;
 pub mod audience;
 pub mod batch;
