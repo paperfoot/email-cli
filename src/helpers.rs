@@ -161,17 +161,31 @@ pub fn escape_html(value: &str) -> String {
 pub fn send_desktop_notification(title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
-        let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
-        let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
-        let _ = std::process::Command::new("osascript")
+        // Prefer terminal-notifier (proper app name + icon), fall back to osascript
+        let tn = std::process::Command::new("terminal-notifier")
             .args([
-                "-e",
-                &format!(
-                    "display notification \"{}\" with title \"{}\" sound name \"Glass\"",
-                    escaped_body, escaped_title,
-                ),
+                "-title", "Email CLI",
+                "-subtitle", title,
+                "-message", body,
+                "-sound", "Glass",
+                "-group", "email-cli",
+                "-appIcon", "/System/Library/CoreServices/Mail.app/Contents/Resources/ApplicationIcon.icns",
             ])
             .output();
+
+        if tn.is_err() || tn.as_ref().is_ok_and(|o| !o.status.success()) {
+            let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
+            let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+            let _ = std::process::Command::new("osascript")
+                .args([
+                    "-e",
+                    &format!(
+                        "display notification \"{}\" with title \"{}\" sound name \"Glass\"",
+                        escaped_body, escaped_title,
+                    ),
+                ])
+                .output();
+        }
     }
     #[cfg(target_os = "linux")]
     {

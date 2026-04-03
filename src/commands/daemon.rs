@@ -13,7 +13,7 @@ use crate::output::Format;
 const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
 
 fn add_separator(tray: &mut TrayItem) {
-    let _ = tray.add_label("────────────");
+    let _ = tray.add_label("───────────────────────────");
 }
 
 impl App {
@@ -57,7 +57,7 @@ impl App {
         add_separator(&mut tray);
 
         // ── Quit ───────────────────────────────────────
-        tray.add_menu_item("Quit Email CLI", || {
+        tray.add_menu_item("Quit", || {
             std::process::exit(0);
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
