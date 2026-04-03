@@ -158,6 +158,29 @@ pub fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+pub fn send_desktop_notification(title: &str, body: &str) {
+    #[cfg(target_os = "macos")]
+    {
+        let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
+        let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = std::process::Command::new("osascript")
+            .args([
+                "-e",
+                &format!(
+                    "display notification \"{}\" with title \"{}\" sound name \"Glass\"",
+                    escaped_body, escaped_title,
+                ),
+            ])
+            .output();
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::process::Command::new("notify-send")
+            .args([title, body])
+            .output();
+    }
+}
+
 pub fn generate_message_id(sender_email: &str) -> String {
     let domain = sender_email
         .rsplit('@')

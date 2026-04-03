@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 
 use crate::app::App;
 use crate::cli::SyncArgs;
-use crate::helpers::{normalize_email, received_email_matches_account};
+use crate::helpers::{normalize_email, received_email_matches_account, send_desktop_notification};
 use crate::models::{AccountRecord, SyncSummary};
 use crate::output::{Format, print_success_or};
 use crate::resend::ResendClient;
@@ -13,9 +13,10 @@ impl App {
         let account_filter = args.account.clone();
         let limit = args.limit;
         let watch = args.watch;
+        let notify = args.notify;
         let interval = args.interval.unwrap_or(60);
 
-        self.sync_once(account_filter.as_deref(), limit)?;
+        self.sync_once(account_filter.as_deref(), limit, notify)?;
 
         if watch {
             loop {
@@ -23,14 +24,14 @@ impl App {
                 if matches!(self.format, Format::Human) {
                     eprintln!("polling...");
                 }
-                self.sync_once(account_filter.as_deref(), limit)?;
+                self.sync_once(account_filter.as_deref(), limit, notify)?;
             }
         }
 
         Ok(())
     }
 
-    fn sync_once(&self, account_filter: Option<&str>, limit: usize) -> Result<()> {
+    fn sync_once(&self, account_filter: Option<&str>, limit: usize, notify: bool) -> Result<()> {
         let accounts = if let Some(account) = account_filter {
             vec![self.get_account(&normalize_email(account))?]
         } else {
@@ -54,8 +55,18 @@ impl App {
         for account in accounts {
             let client = self.client_for_profile(&account.profile_name)?;
             summary.sent_messages += self.sync_sent_account(&client, &account, limit)?;
-            summary.received_messages +=
-                self.sync_received_account(&client, &account, limit)?;
+            let (received, new_messages) =
+                self.sync_received_account_with_details(&client, &account, limit)?;
+            summary.received_messages += received;
+
+            if notify && !new_messages.is_empty() {
+                for (from, subject) in &new_messages {
+                    send_desktop_notification(
+                        &format!("New email to {}", account.email),
+                        &format!("From: {}\n{}", from, subject),
+                    );
+                }
+            }
         }
 
         print_success_or(self.format, &summary, |summary| {
@@ -118,16 +129,18 @@ impl App {
         Ok(total)
     }
 
-    pub fn sync_received_account(
+    /// Sync received messages and return (count, Vec<(from, subject)>) for notifications.
+    pub fn sync_received_account_with_details(
         &self,
         client: &ResendClient,
         account: &AccountRecord,
         page_size: usize,
-    ) -> Result<usize> {
+    ) -> Result<(usize, Vec<(String, String)>)> {
         let cursor = self.get_sync_cursor(&account.email, "received")?;
         let mut after = None;
         let mut newest_cursor = None;
         let mut total = 0usize;
+        let mut new_messages = Vec::new();
 
         loop {
             let page = client.list_received_emails_page(page_size, after.as_deref())?;
@@ -147,8 +160,11 @@ impl App {
                 if !received_email_matches_account(&detail, &account.email) {
                     continue;
                 }
+                let from = detail.from.clone().unwrap_or_default();
+                let subject = detail.subject.clone().unwrap_or_default();
                 let message_id = self.store_received_message(account, detail.clone())?;
                 self.store_received_attachments(message_id, &detail.attachments)?;
+                new_messages.push((from, subject));
                 total += 1;
             }
 
@@ -162,6 +178,6 @@ impl App {
             self.set_sync_cursor(&account.email, "received", &cursor_id)?;
         }
 
-        Ok(total)
+        Ok((total, new_messages))
     }
 }
