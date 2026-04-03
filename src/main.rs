@@ -10,6 +10,7 @@ mod output;
 mod resend;
 
 use clap::Parser;
+use std::io::IsTerminal;
 
 use crate::app::App;
 use crate::cli::*;
@@ -21,6 +22,24 @@ fn main() {
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(err) => {
+            // Help and version are not errors — exit 0.
+            if matches!(
+                err.kind(),
+                clap::error::ErrorKind::DisplayHelp
+                    | clap::error::ErrorKind::DisplayVersion
+            ) {
+                if !std::io::stdout().is_terminal() {
+                    let envelope = serde_json::json!({
+                        "version": "1",
+                        "status": "success",
+                        "data": { "usage": err.to_string().trim_end() },
+                    });
+                    println!("{}", serde_json::to_string_pretty(&envelope).unwrap());
+                    std::process::exit(0);
+                }
+                err.exit();
+            }
+
             let format = Format::detect(false);
             output::print_clap_error(format, err);
             std::process::exit(3);
@@ -91,7 +110,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
         },
         Command::Sync(args) => app.sync(args)?,
         Command::Inbox { command } => match command {
-            InboxCommand::Ls(args) => app.inbox_list(args)?,
+            InboxCommand::List(args) => app.inbox_list(args)?,
             InboxCommand::Read(args) => app.inbox_read(args)?,
             InboxCommand::Delete(args) => app.inbox_delete(args)?,
             InboxCommand::Archive(args) => app.inbox_archive(args)?,
