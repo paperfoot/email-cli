@@ -161,22 +161,13 @@ pub fn escape_html(value: &str) -> String {
 pub fn send_desktop_notification(title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
-        // Use our compiled Swift helper for clean native notifications.
-        // Falls back to osascript if the helper isn't found.
+        // Use the signed .app bundle for native macOS notifications.
+        // Falls back to osascript if the bundle isn't found.
         let helper = notification_helper_path();
-        let icon = notification_icon_path();
 
         if helper.exists() {
-            let mut args = vec![
-                "Email CLI".to_string(),
-                title.to_string(),
-                body.to_string(),
-            ];
-            if icon.exists() {
-                args.push(icon.display().to_string());
-            }
             let _ = std::process::Command::new(&helper)
-                .args(&args)
+                .args(["Email CLI", title, body])
                 .output();
         } else {
             let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
@@ -202,31 +193,24 @@ pub fn send_desktop_notification(title: &str, body: &str) {
 
 #[cfg(target_os = "macos")]
 fn notification_helper_path() -> std::path::PathBuf {
-    // Check next to the binary first, then in data dir
-    if let Ok(exe) = std::env::current_exe() {
-        let beside = exe.parent().unwrap_or(std::path::Path::new(".")).join("email-cli-notify");
-        if beside.exists() {
-            return beside;
+    // Search order: next to binary, data dir, repo assets
+    let candidates = [
+        std::env::current_exe().ok().and_then(|exe| {
+            exe.parent().map(|dir| dir.join("EmailCLI.app/Contents/MacOS/email-cli-notify"))
+        }),
+        Some(
+            data_local_dir()
+                .unwrap_or(std::path::PathBuf::from("."))
+                .join("email-cli/EmailCLI.app/Contents/MacOS/email-cli-notify"),
+        ),
+    ];
+    for candidate in candidates.into_iter().flatten() {
+        if candidate.exists() {
+            return candidate;
         }
     }
-    data_local_dir()
-        .unwrap_or(std::path::PathBuf::from("."))
-        .join("email-cli")
-        .join("email-cli-notify")
-}
-
-#[cfg(target_os = "macos")]
-fn notification_icon_path() -> std::path::PathBuf {
-    if let Ok(exe) = std::env::current_exe() {
-        let beside = exe.parent().unwrap_or(std::path::Path::new(".")).join("notification_icon.png");
-        if beside.exists() {
-            return beside;
-        }
-    }
-    data_local_dir()
-        .unwrap_or(std::path::PathBuf::from("."))
-        .join("email-cli")
-        .join("notification_icon.png")
+    // Fallback — won't exist, triggers osascript path
+    std::path::PathBuf::from("/usr/local/lib/email-cli/EmailCLI.app/Contents/MacOS/email-cli-notify")
 }
 
 pub fn generate_message_id(sender_email: &str) -> String {
