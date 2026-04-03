@@ -464,12 +464,32 @@ pub fn header_email_list(headers: &BTreeMap<String, Value>, key: &str) -> Vec<St
 }
 
 pub fn split_address_header(value: &str) -> Vec<String> {
-    value
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToString::to_string)
-        .collect()
+    let mut results = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in value.chars() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(ch);
+            }
+            ',' if !in_quotes => {
+                let trimmed = current.trim().to_string();
+                if !trimmed.is_empty() {
+                    results.push(trimmed);
+                }
+                current.clear();
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    let trimmed = current.trim().to_string();
+    if !trimmed.is_empty() {
+        results.push(trimmed);
+    }
+    results
 }
 
 pub fn ensure_reply_account_matches(message: &MessageRecord, account: &AccountRecord) -> Result<()> {
