@@ -32,6 +32,7 @@ pub enum Command {
     },
     Send(SendArgs),
     Reply(ReplyArgs),
+    Forward(ForwardArgs),
     Draft {
         #[command(subcommand)]
         command: DraftCommand,
@@ -172,7 +173,7 @@ pub struct SignatureShowArgs {
 pub struct ComposeArgs {
     #[arg(long)]
     pub account: Option<String>,
-    #[arg(long, required = true)]
+    #[arg(long, required_unless_present = "reply_to_msg")]
     pub to: Vec<String>,
     #[arg(long)]
     pub cc: Vec<String>,
@@ -180,6 +181,9 @@ pub struct ComposeArgs {
     pub bcc: Vec<String>,
     #[arg(long, default_value = "")]
     pub subject: String,
+    /// Thread this email as a reply to a local message ID
+    #[arg(long)]
+    pub reply_to_msg: Option<i64>,
     #[arg(long)]
     pub text: Option<String>,
     #[arg(long)]
@@ -203,6 +207,9 @@ pub struct ReplyArgs {
     pub message_id: i64,
     #[arg(long)]
     pub account: Option<String>,
+    /// Reply to all recipients (preserves CC)
+    #[arg(long)]
+    pub all: bool,
     #[arg(long)]
     pub text: Option<String>,
     #[arg(long)]
@@ -213,6 +220,22 @@ pub struct ReplyArgs {
     pub html_file: Option<PathBuf>,
     #[arg(long = "attach")]
     pub attachments: Vec<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct ForwardArgs {
+    pub message_id: i64,
+    #[arg(long)]
+    pub account: Option<String>,
+    #[arg(long, required = true)]
+    pub to: Vec<String>,
+    #[arg(long)]
+    pub cc: Vec<String>,
+    #[arg(long)]
+    pub bcc: Vec<String>,
+    /// Optional preamble text before the forwarded content
+    #[arg(long)]
+    pub text: Option<String>,
 }
 
 #[derive(Subcommand)]

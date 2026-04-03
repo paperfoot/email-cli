@@ -2,11 +2,12 @@ use anyhow::{Result, bail};
 use std::collections::HashMap;
 
 use crate::app::App;
-use crate::cli::{ComposeArgs, ReplyArgs, SendArgs};
+use crate::cli::{ComposeArgs, ForwardArgs, ReplyArgs, SendArgs};
 use crate::helpers::{
     append_signature_html, append_signature_text, build_send_attachments,
-    ensure_reply_account_matches, format_sender, normalize_email, normalize_emails,
-    now_timestamp, read_optional_content, reply_headers_for_message, reply_recipients,
+    ensure_reply_account_matches, format_forwarded_body, format_sender, forward_subject,
+    generate_message_id, normalize_email, normalize_emails, now_timestamp,
+    read_optional_content, reply_all_recipients, reply_headers_for_message, reply_recipients,
     reply_subject,
 };
 use crate::http::fetch_sent_detail;
@@ -17,8 +18,26 @@ use crate::output::print_success_or;
 
 impl App {
     pub fn send(&self, args: SendArgs) -> Result<()> {
-        let compose = self.resolve_compose(args.compose)?;
-        let message = self.send_compose(compose, None)?;
+        let reply_to_msg = args.compose.reply_to_msg;
+        let mut compose = self.resolve_compose(args.compose)?;
+
+        let reply_context = if let Some(msg_id) = reply_to_msg {
+            let target = self.get_message(msg_id)?;
+            let headers = reply_headers_for_message(&target);
+            // Auto-set subject if empty
+            if compose.subject.is_empty() {
+                compose.subject = reply_subject(&target.subject);
+            }
+            // If no explicit --to, use reply recipients
+            if compose.to.is_empty() {
+                compose.to = reply_recipients(&target)?;
+            }
+            Some((target.id, headers))
+        } else {
+            None
+        };
+
+        let message = self.send_compose(compose, reply_context)?;
 
         print_success_or(self.format, &message, |message| {
             println!(
@@ -39,12 +58,18 @@ impl App {
             None => self.get_account(&target.account_email)?,
         };
         ensure_reply_account_matches(&target, &account)?;
-        let recipients = reply_recipients(&target)?;
+
+        let (to, cc) = if args.all {
+            reply_all_recipients(&target, &account.email)
+        } else {
+            (reply_recipients(&target)?, Vec::new())
+        };
+
         let subject = reply_subject(&target.subject);
         let compose = ResolvedCompose {
             account,
-            to: recipients,
-            cc: Vec::new(),
+            to,
+            cc,
             bcc: Vec::new(),
             subject,
             text: read_optional_content(args.text, args.text_file)?,
@@ -56,6 +81,36 @@ impl App {
 
         print_success_or(self.format, &message, |message| {
             println!("replied with message {}", message.id);
+        });
+
+        Ok(())
+    }
+
+    pub fn forward(&self, args: ForwardArgs) -> Result<()> {
+        let target = self.get_message(args.message_id)?;
+        let account = match args.account {
+            Some(account) => self.get_account(&normalize_email(&account))?,
+            None => self.get_account(&target.account_email)?,
+        };
+
+        let subject = forward_subject(&target.subject);
+        let (text, html) = format_forwarded_body(args.text.as_deref(), &target);
+
+        let compose = ResolvedCompose {
+            account,
+            to: normalize_emails(&args.to),
+            cc: normalize_emails(&args.cc),
+            bcc: normalize_emails(&args.bcc),
+            subject,
+            text,
+            html,
+            attachments: Vec::new(),
+        };
+        // No reply context — forwarding intentionally breaks thread (per RFC)
+        let message = self.send_compose(compose, None)?;
+
+        print_success_or(self.format, &message, |message| {
+            println!("forwarded message {} as {}", args.message_id, message.id);
         });
 
         Ok(())
@@ -106,20 +161,26 @@ impl App {
             }
         }
 
-        let headers = reply_context.as_ref().and_then(|(_, reply)| {
-            if reply.in_reply_to.is_none() && reply.references.is_empty() {
-                None
-            } else {
-                let mut headers = HashMap::new();
-                if let Some(in_reply_to) = reply.in_reply_to.as_deref() {
-                    headers.insert("In-Reply-To".to_string(), in_reply_to.to_string());
-                }
-                if !reply.references.is_empty() {
-                    headers.insert("References".to_string(), reply.references.join(" "));
-                }
-                Some(headers)
+        // Generate a unique Message-ID for every outgoing email
+        let message_id = generate_message_id(&compose.account.email);
+
+        let mut custom_headers = HashMap::new();
+        custom_headers.insert("Message-ID".to_string(), message_id.clone());
+
+        if let Some((_, ref reply)) = reply_context {
+            if let Some(in_reply_to) = reply.in_reply_to.as_deref() {
+                custom_headers.insert("In-Reply-To".to_string(), in_reply_to.to_string());
             }
-        });
+            if !reply.references.is_empty() {
+                custom_headers.insert("References".to_string(), reply.references.join(" "));
+            }
+        }
+
+        let headers = if custom_headers.is_empty() {
+            None
+        } else {
+            Some(custom_headers)
+        };
 
         let request = SendEmailRequest {
             from: format_sender(
@@ -155,7 +216,12 @@ impl App {
                         text: request.text.clone(),
                     });
                 let reply_headers = reply_context.map(|(_, reply)| reply);
-                self.store_sent_message(&compose.account, detail, reply_headers)
+                self.store_sent_message(
+                    &compose.account,
+                    detail,
+                    reply_headers,
+                    Some(message_id),
+                )
             }
             Err(err) => {
                 self.outbox_mark_failed(&idempotency_key, &err.to_string())?;

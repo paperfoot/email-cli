@@ -100,7 +100,7 @@ impl App {
                     .unwrap_or_default();
                 if from_email == account.email {
                     let detail = client.get_sent_email(&item.id)?;
-                    self.store_sent_message(account, detail, None)?;
+                    self.store_sent_message(account, detail, None, None)?;
                     total += 1;
                 }
             }

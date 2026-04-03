@@ -479,6 +479,7 @@ impl App {
         account: &AccountRecord,
         email: SentEmail,
         reply_headers: Option<ReplyHeaders>,
+        generated_message_id: Option<String>,
     ) -> Result<MessageRecord> {
         let raw_json = serde_json::to_string(&email)?;
         let created_at = normalize_timestamp(email.created_at.as_deref());
@@ -499,7 +500,7 @@ impl App {
             subject: email.subject.unwrap_or_default(),
             text_body: email.text,
             html_body: email.html,
-            rfc_message_id: None,
+            rfc_message_id: generated_message_id,
             in_reply_to,
             references,
             last_event: email.last_event,
