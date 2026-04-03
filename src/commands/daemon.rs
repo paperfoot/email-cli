@@ -10,8 +10,11 @@ use crate::cli::DaemonArgs;
 use crate::helpers::{normalize_email, received_email_matches_account, send_desktop_notification};
 use crate::output::Format;
 
-// Embed the menu bar icon at compile time
 const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
+
+fn add_separator(tray: &mut TrayItem) {
+    let _ = tray.add_label("────────────");
+}
 
 impl App {
     pub fn daemon(&self, args: DaemonArgs) -> Result<()> {
@@ -19,19 +22,23 @@ impl App {
         let account_filter = args.account.clone();
         let db_path = self.db_path.clone();
 
-        // Build the tray icon with embedded PNG
         let mut tray = TrayItem::new("", IconSource::Data {
             width: 32,
             height: 32,
             data: ICON_PNG.to_vec(),
         }).map_err(|e| anyhow::anyhow!("failed to create menu bar icon: {}", e))?;
 
-        // Unread count label
+        // ── Status section ─────────────────────────────
         let unread = self.count_unread(account_filter.as_deref()).unwrap_or(0);
-        tray.add_label(&format!("{} unread", unread))
+        let account_label = account_filter
+            .as_deref()
+            .unwrap_or("all accounts");
+        tray.add_label(&format!("{} unread \u{00b7} {}", unread, account_label))
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Sync Now — triggers via a shared flag
+        add_separator(&mut tray);
+
+        // ── Actions ────────────────────────────────────
         let sync_flag = Arc::new(AtomicBool::new(false));
         let sync_flag_btn = sync_flag.clone();
         tray.add_menu_item("Sync Now", move || {
@@ -39,14 +46,25 @@ impl App {
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Quit
+        // Mark All Read
+        let mark_read_flag = Arc::new(AtomicBool::new(false));
+        let mark_read_btn = mark_read_flag.clone();
+        tray.add_menu_item("Mark All Read", move || {
+            mark_read_btn.store(true, Ordering::Relaxed);
+        })
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+        add_separator(&mut tray);
+
+        // ── Quit ───────────────────────────────────────
         tray.add_menu_item("Quit Email CLI", || {
             std::process::exit(0);
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Spawn background sync thread with its own DB connection
+        // ── Background sync thread ────────────────────
         let sync_flag_bg = sync_flag.clone();
+        let mark_read_bg = mark_read_flag.clone();
         thread::spawn(move || {
             let Ok(app) = App::new(db_path, Format::Json) else {
                 eprintln!("daemon: failed to open database");
@@ -54,23 +72,30 @@ impl App {
             };
 
             loop {
+                // Check "Mark All Read" flag
+                if mark_read_bg.swap(false, Ordering::Relaxed) {
+                    let _ = app.mark_all_read(account_filter.as_deref());
+                }
+
                 // Sync
                 if let Err(e) = daemon_sync(&app, account_filter.as_deref()) {
                     eprintln!("sync error: {}", e);
                 }
 
-                // Wait for interval, checking for manual sync trigger
+                // Wait for interval, checking for manual triggers
                 for _ in 0..(interval * 4) {
                     if sync_flag_bg.swap(false, Ordering::Relaxed) {
-                        break; // "Sync Now" was clicked
+                        break;
+                    }
+                    if mark_read_bg.swap(false, Ordering::Relaxed) {
+                        let _ = app.mark_all_read(account_filter.as_deref());
                     }
                     thread::sleep(Duration::from_millis(250));
                 }
             }
         });
 
-        // display() starts the Cocoa event loop — blocks forever.
-        // This is what actually puts the icon in the menu bar.
+        // display() starts the Cocoa event loop — blocks forever
         tray.inner_mut().display();
 
         Ok(())
@@ -90,6 +115,24 @@ impl App {
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let count: i64 = self.conn.query_row(sql, refs.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
+    }
+
+    fn mark_all_read(&self, account_filter: Option<&str>) -> Result<()> {
+        match account_filter {
+            Some(acct) => {
+                self.conn.execute(
+                    "UPDATE messages SET is_read = 1 WHERE is_read = 0 AND direction = 'received' AND account_email = ?1",
+                    [acct],
+                )?;
+            }
+            None => {
+                self.conn.execute(
+                    "UPDATE messages SET is_read = 1 WHERE is_read = 0 AND direction = 'received'",
+                    [],
+                )?;
+            }
+        }
+        Ok(())
     }
 }
 

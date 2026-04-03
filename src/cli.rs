@@ -369,7 +369,8 @@ pub struct InboxListArgs {
 #[derive(Args)]
 pub struct InboxReadArgs {
     pub id: i64,
-    #[arg(long)]
+    /// Mark message as read (default: true, use --no-mark-read to skip)
+    #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
     pub mark_read: bool,
     #[arg(long)]
     pub raw: bool,
