@@ -101,6 +101,7 @@ pub enum Command {
 #[derive(Subcommand)]
 pub enum ProfileCommand {
     Add(ProfileAddArgs),
+    #[command(visible_alias = "ls")]
     List,
     Test(ProfileTestArgs),
 }
@@ -126,6 +127,7 @@ pub struct ProfileTestArgs {
 #[derive(Subcommand)]
 pub enum AccountCommand {
     Add(AccountAddArgs),
+    #[command(visible_alias = "ls")]
     List,
     Use(AccountUseArgs),
 }
@@ -215,11 +217,14 @@ pub struct ReplyArgs {
 
 #[derive(Subcommand)]
 pub enum DraftCommand {
+    #[command(visible_alias = "new")]
     Create(DraftCreateArgs),
+    #[command(visible_alias = "ls")]
     List(DraftListArgs),
     Show(DraftShowArgs),
     Send(DraftSendArgs),
     Edit(DraftEditArgs),
+    #[command(visible_alias = "rm")]
     Delete(DraftDeleteArgs),
 }
 
@@ -285,8 +290,10 @@ pub struct SyncArgs {
 
 #[derive(Subcommand)]
 pub enum InboxCommand {
-    Ls(InboxListArgs),
+    #[command(visible_alias = "ls")]
+    List(InboxListArgs),
     Read(InboxReadArgs),
+    #[command(visible_alias = "rm")]
     Delete(InboxDeleteArgs),
     Archive(InboxArchiveArgs),
     Search(InboxSearchArgs),
@@ -344,7 +351,9 @@ pub struct InboxPurgeArgs {
 
 #[derive(Subcommand)]
 pub enum AttachmentsCommand {
+    #[command(visible_alias = "ls")]
     List(AttachmentListArgs),
+    #[command(visible_alias = "show")]
     Get(AttachmentGetArgs),
 }
 
@@ -373,10 +382,14 @@ pub enum SkillAction {
 
 #[derive(Subcommand)]
 pub enum DomainCommand {
+    #[command(visible_alias = "ls")]
     List,
+    #[command(visible_alias = "show")]
     Get(DomainGetArgs),
+    #[command(visible_alias = "new")]
     Create(DomainCreateArgs),
     Verify(DomainVerifyArgs),
+    #[command(visible_alias = "rm")]
     Delete(DomainDeleteArgs),
     Update(DomainUpdateArgs),
 }
@@ -417,9 +430,13 @@ pub struct DomainUpdateArgs {
 
 #[derive(Subcommand)]
 pub enum AudienceCommand {
+    #[command(visible_alias = "ls")]
     List,
+    #[command(visible_alias = "show")]
     Get(AudienceGetArgs),
+    #[command(visible_alias = "new")]
     Create(AudienceCreateArgs),
+    #[command(visible_alias = "rm")]
     Delete(AudienceDeleteArgs),
 }
 
@@ -443,10 +460,14 @@ pub struct AudienceDeleteArgs {
 
 #[derive(Subcommand)]
 pub enum ContactCommand {
+    #[command(visible_alias = "ls")]
     List(ContactListArgs),
+    #[command(visible_alias = "show")]
     Get(ContactGetArgs),
+    #[command(visible_alias = "new")]
     Create(ContactCreateArgs),
     Update(ContactUpdateArgs),
+    #[command(visible_alias = "rm")]
     Delete(ContactDeleteArgs),
 }
 
@@ -515,8 +536,11 @@ pub struct BatchSendArgs {
 
 #[derive(Subcommand)]
 pub enum ApiKeyCommand {
+    #[command(visible_alias = "ls")]
     List,
+    #[command(visible_alias = "new")]
     Create(ApiKeyCreateArgs),
+    #[command(visible_alias = "rm")]
     Delete(ApiKeyDeleteArgs),
 }
 
@@ -538,6 +562,7 @@ pub struct ApiKeyDeleteArgs {
 
 #[derive(Subcommand)]
 pub enum OutboxCommand {
+    #[command(visible_alias = "ls")]
     List,
     Retry(OutboxRetryArgs),
     Flush,
@@ -565,6 +590,7 @@ pub struct WebhookListenArgs {
 
 #[derive(Subcommand)]
 pub enum EventsCommand {
+    #[command(visible_alias = "ls")]
     List(EventsListArgs),
 }
 
