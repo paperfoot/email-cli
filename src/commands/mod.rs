@@ -16,4 +16,5 @@ pub mod send;
 pub mod signature;
 pub mod skill;
 pub mod sync;
+pub mod update;
 pub mod webhook;

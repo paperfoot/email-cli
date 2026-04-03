@@ -88,6 +88,12 @@ pub enum Command {
         #[command(subcommand)]
         command: EventsCommand,
     },
+    /// Self-update from GitHub Releases
+    Update {
+        /// Check only, don't install
+        #[arg(long)]
+        check: bool,
+    },
     /// Machine-readable capability manifest
     AgentInfo,
     /// Install skill file to agent platforms

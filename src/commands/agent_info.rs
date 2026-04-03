@@ -84,7 +84,11 @@ pub fn run(_format: Format) {
                 "api-key create | new --name <name>": "Create key (--permission: full-access|sending-access)",
                 "api-key delete | rm <id>": "Delete an API key",
             },
+            "daemon": {
+                "daemon": "Run as menu bar daemon with sync and notifications (--account, --interval)",
+            },
             "meta": {
+                "update": "Self-update from GitHub Releases (--check to check only)",
                 "agent-info": "This manifest",
                 "skill install": "Install skill file to agent platforms",
                 "skill status": "Check skill installation status",
