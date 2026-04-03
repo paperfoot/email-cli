@@ -9,9 +9,8 @@ let notification = NSUserNotification()
 notification.title = title
 notification.subtitle = subtitle
 notification.informativeText = body
-notification.soundName = NSUserNotificationDefaultSoundName
+notification.soundName = "EmailCLI"
 
-// Set custom icon if provided
 if args.count > 4 {
     if let image = NSImage(contentsOfFile: args[4]) {
         notification.contentImage = image
