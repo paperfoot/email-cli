@@ -158,12 +158,102 @@ pub fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+pub fn generate_message_id(sender_email: &str) -> String {
+    let domain = sender_email
+        .rsplit('@')
+        .next()
+        .unwrap_or("localhost");
+    format!("<{}@{}>", uuid::Uuid::new_v4(), domain)
+}
+
 pub fn reply_subject(subject: &str) -> String {
     if subject.to_ascii_lowercase().starts_with("re:") {
         subject.to_string()
     } else {
         format!("Re: {}", subject)
     }
+}
+
+pub fn forward_subject(subject: &str) -> String {
+    if subject.to_ascii_lowercase().starts_with("fwd:") {
+        subject.to_string()
+    } else {
+        format!("Fwd: {}", subject)
+    }
+}
+
+pub fn reply_all_recipients(
+    message: &MessageRecord,
+    self_email: &str,
+) -> (Vec<String>, Vec<String>) {
+    let self_norm = normalize_email(self_email);
+
+    // To: Reply-To if present, otherwise From
+    let to = if !message.reply_to.is_empty() {
+        normalize_emails(&message.reply_to)
+    } else {
+        vec![normalize_email(&message.from_addr)]
+    };
+
+    let to_set: std::collections::HashSet<&str> =
+        to.iter().map(String::as_str).collect();
+
+    // CC: original To + original CC, minus self, minus anyone already in To
+    let cc: Vec<String> = message
+        .to
+        .iter()
+        .chain(message.cc.iter())
+        .map(|addr| normalize_email(addr))
+        .filter(|addr| addr != &self_norm && !to_set.contains(addr.as_str()))
+        .collect();
+    let cc = stable_dedup(cc);
+
+    (to, cc)
+}
+
+pub fn format_forwarded_body(
+    preamble: Option<&str>,
+    original: &MessageRecord,
+) -> (Option<String>, Option<String>) {
+    let header_block = format!(
+        "---------- Forwarded message ----------\n\
+         From: {}\n\
+         Date: {}\n\
+         Subject: {}\n\
+         To: {}\n",
+        original.from_addr,
+        original.created_at,
+        original.subject,
+        original.to.join(", "),
+    );
+
+    let text = {
+        let original_text = original.text_body.as_deref().unwrap_or("");
+        match preamble {
+            Some(p) => format!("{p}\n\n{header_block}\n{original_text}"),
+            None => format!("{header_block}\n{original_text}"),
+        }
+    };
+
+    let html = original.html_body.as_ref().map(|original_html| {
+        let header_html = format!(
+            "<br><br>---------- Forwarded message ----------<br>\
+             <b>From:</b> {}<br>\
+             <b>Date:</b> {}<br>\
+             <b>Subject:</b> {}<br>\
+             <b>To:</b> {}<br><br>",
+            escape_html(&original.from_addr),
+            escape_html(&original.created_at),
+            escape_html(&original.subject),
+            escape_html(&original.to.join(", ")),
+        );
+        match preamble {
+            Some(p) => format!("<p>{}</p>{header_html}{original_html}", escape_html(p)),
+            None => format!("{header_html}{original_html}"),
+        }
+    });
+
+    (Some(text), html)
 }
 
 pub fn header_string(headers: &BTreeMap<String, Value>, key: &str) -> Option<String> {
@@ -379,12 +469,10 @@ pub fn ensure_reply_account_matches(message: &MessageRecord, account: &AccountRe
 }
 
 pub fn reply_recipients(message: &MessageRecord) -> Result<Vec<String>> {
-    if message.direction != "received" {
-        bail!(
-            "replying to sent messages is not supported until sent message-id storage is implemented"
-        );
-    }
-    let recipients = if !message.reply_to.is_empty() {
+    let recipients = if message.direction == "sent" {
+        // Replying to own sent message: continue conversation with original recipients
+        normalize_emails(&message.to)
+    } else if !message.reply_to.is_empty() {
         normalize_emails(&message.reply_to)
     } else {
         vec![normalize_email(&message.from_addr)]
