@@ -2,10 +2,12 @@ use anyhow::{Context, Result};
 
 use crate::app::App;
 use crate::cli::*;
+use crate::helpers::send_desktop_notification;
 use crate::output::Format;
 
 impl App {
     pub fn webhook_listen(&self, args: WebhookListenArgs) -> Result<()> {
+        let notify = args.notify;
         let addr = format!("0.0.0.0:{}", args.port);
         let server = tiny_http::Server::http(&addr)
             .map_err(|e| anyhow::anyhow!("failed to bind {}: {}", addr, e))?;
@@ -33,7 +35,7 @@ impl App {
             }
 
             // Parse the Resend webhook event
-            match self.handle_webhook_event(&body) {
+            match self.handle_webhook_event(&body, notify) {
                 Ok(event_type) => {
                     if matches!(self.format, Format::Human) {
                         eprintln!("event: {}", event_type);
@@ -54,7 +56,7 @@ impl App {
         Ok(())
     }
 
-    fn handle_webhook_event(&self, body: &str) -> Result<String> {
+    fn handle_webhook_event(&self, body: &str, notify: bool) -> Result<String> {
         let payload: serde_json::Value =
             serde_json::from_str(body).context("invalid JSON in webhook body")?;
 
@@ -92,6 +94,14 @@ impl App {
                                             let _ = self.store_received_attachments(
                                                 msg.id,
                                                 &detail.attachments,
+                                            );
+                                        }
+                                        if notify {
+                                            let from = detail.from.as_deref().unwrap_or("unknown");
+                                            let subject = detail.subject.as_deref().unwrap_or("(no subject)");
+                                            send_desktop_notification(
+                                                &format!("New email to {}", account.email),
+                                                &format!("From: {}\n{}", from, subject),
                                             );
                                         }
                                         break;

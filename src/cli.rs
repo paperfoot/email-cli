@@ -309,6 +309,9 @@ pub struct SyncArgs {
     /// Poll interval in seconds (requires --watch)
     #[arg(long, default_value = "60")]
     pub interval: Option<u64>,
+    /// Send desktop notifications for new messages
+    #[arg(long)]
+    pub notify: bool,
 }
 
 #[derive(Subcommand)]
@@ -617,6 +620,9 @@ pub enum WebhookCommand {
 pub struct WebhookListenArgs {
     #[arg(long, default_value = "8080")]
     pub port: u16,
+    /// Send desktop notifications for new messages
+    #[arg(long)]
+    pub notify: bool,
 }
 
 // ── Events commands ───────────────────────────────────────────────────────

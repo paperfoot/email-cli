@@ -117,6 +117,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
                 limit: args.limit,
                 watch: false,
                 interval: None,
+                notify: false,
             })?,
             InboxCommand::Read(args) => app.inbox_read(args)?,
             InboxCommand::Delete(args) => app.inbox_delete(args)?,
