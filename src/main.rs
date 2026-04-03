@@ -101,6 +101,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
         Command::Send(args) => app.send(args)?,
         Command::Reply(args) => app.reply(args)?,
         Command::Forward(args) => app.forward(args)?,
+        Command::Daemon(args) => app.daemon(args)?,
         Command::Draft { command } => match command {
             DraftCommand::Create(args) => app.draft_create(args)?,
             DraftCommand::List(args) => app.draft_list(args)?,
