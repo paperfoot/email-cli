@@ -39,26 +39,30 @@ You can also use it as a human. It works the same way.
 
 ## Install
 
-### Homebrew (macOS/Linux)
+### One-line install (pre-built binary, no Rust required)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/199-biotechnologies/email-cli/main/install.sh | sh
+```
+
+### Homebrew
 
 ```bash
 brew tap 199-biotechnologies/tap
 brew install email-cli
 ```
 
-### Cargo (any platform)
+### Cargo
 
 ```bash
 cargo install email-cli
 ```
 
-### From source
+### Update
 
 ```bash
-git clone https://github.com/199-biotechnologies/email-cli.git
-cd email-cli
-cargo build --release
-# binary: ./target/release/email-cli
+email-cli update           # self-update from GitHub Releases
+email-cli update --check   # check without installing
 ```
 
 ## Quick Start
