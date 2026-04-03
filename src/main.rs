@@ -111,6 +111,12 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
         Command::Sync(args) => app.sync(args)?,
         Command::Inbox { command } => match command {
             InboxCommand::List(args) => app.inbox_list(args)?,
+            InboxCommand::Sync(args) => app.sync(SyncArgs {
+                account: args.account,
+                limit: args.limit,
+                watch: false,
+                interval: None,
+            })?,
             InboxCommand::Read(args) => app.inbox_read(args)?,
             InboxCommand::Delete(args) => app.inbox_delete(args)?,
             InboxCommand::Archive(args) => app.inbox_archive(args)?,

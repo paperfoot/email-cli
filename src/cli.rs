@@ -292,12 +292,22 @@ pub struct SyncArgs {
 pub enum InboxCommand {
     #[command(visible_alias = "ls")]
     List(InboxListArgs),
+    /// Sync messages from Resend (shortcut for top-level sync)
+    Sync(InboxSyncArgs),
     Read(InboxReadArgs),
     #[command(visible_alias = "rm")]
     Delete(InboxDeleteArgs),
     Archive(InboxArchiveArgs),
     Search(InboxSearchArgs),
     Purge(InboxPurgeArgs),
+}
+
+#[derive(Args)]
+pub struct InboxSyncArgs {
+    #[arg(long)]
+    pub account: Option<String>,
+    #[arg(long, default_value = "25")]
+    pub limit: usize,
 }
 
 #[derive(Args)]
