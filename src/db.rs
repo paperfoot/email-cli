@@ -535,7 +535,8 @@ impl App {
             subject: email.subject.unwrap_or_default(),
             text_body: email.text.clone(),
             html_body: email.html.clone(),
-            rfc_message_id: email.message_id.clone(),
+            rfc_message_id: email.message_id.clone()
+                .or_else(|| header_string(&headers, "message-id")),
             in_reply_to,
             references,
             last_event: Some("received".to_string()),
