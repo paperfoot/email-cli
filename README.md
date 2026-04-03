@@ -19,7 +19,7 @@
 
 ---
 
-A single binary that gives your AI agent a real email address. Send, receive, reply, draft, sync, and manage contacts through Resend -- all from the command line. No IMAP. No browser inbox. No MCP server. Just a local SQLite mailbox and 42 commands.
+A single binary that gives your AI agent a real email address. Send, receive, reply, draft, sync, and manage contacts through Resend -- all from the command line. No IMAP. No browser inbox. No MCP server. Just a local SQLite mailbox and 50+ commands.
 
 [Why This Exists](#why-this-exists) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Configuration](#configuration) | [Contributing](#contributing)
 
@@ -87,8 +87,17 @@ email-cli sync
 email-cli inbox ls
 email-cli inbox read 1 --mark-read
 
-# 6. Reply
+# 6. Reply (threads correctly with In-Reply-To + References)
 email-cli reply 1 --text "Got it, thanks."
+
+# 7. Reply All (preserves CC recipients)
+email-cli reply 1 --all --text "Thanks everyone."
+
+# 8. Forward
+email-cli forward 1 --to colleague@example.com --text "FYI"
+
+# 9. Thread a new send into an existing conversation
+email-cli send --reply-to-msg 1 --to someone@example.com --text "Following up"
 ```
 
 ## How It Works
@@ -110,7 +119,7 @@ Resend handles delivery. Email CLI handles the local operating model that agents
                ▼
 ┌────────────────────────────────┐
 │          email-cli             │
-│   42 commands, JSON output,   │
+│   50+ commands, JSON output,   │
 │   semantic exit codes          │
 └──────────┬─────────┬───────────┘
            │         │
@@ -128,15 +137,21 @@ Resend handles delivery. Email CLI handles the local operating model that agents
 
 | Command | What it does |
 |---|---|
-| `send` | Send email with text/HTML body and attachments |
-| `reply <id>` | Reply with proper threading headers |
+| `send` | Send email (--reply-to-msg for threading, --cc, --bcc, --attach) |
+| `reply <id>` | Reply with proper threading headers (--all for Reply All) |
+| `forward <id>` | Forward a message (--to, --cc, --text for preamble) |
 | `sync` | Pull sent and received messages into local store |
 | `inbox ls` | List messages (filter by account, unread status) |
 | `inbox read <id>` | Read a message, optionally mark as read |
+| `inbox search <q>` | Search messages by keyword |
+| `inbox delete <id>` | Delete a message |
+| `inbox archive <id>` | Archive a message |
 | `draft create` | Save a local draft with attachment snapshots |
 | `draft list` | List all drafts |
 | `draft show <id>` | View draft details |
+| `draft edit <id>` | Edit a draft |
 | `draft send <id>` | Send a draft and delete it |
+| `draft delete <id>` | Delete a draft |
 | `attachments list <id>` | List attachments on a message |
 | `attachments get <id> <att>` | Download an attachment to disk |
 
@@ -183,6 +198,18 @@ Resend handles delivery. Email CLI handles the local operating model that agents
 | `skill install` | Install skill file for Claude/Codex/Gemini |
 | `skill status` | Check skill installation status |
 | `completions <shell>` | Generate shell completions (bash/zsh/fish) |
+
+## Email Threading
+
+Every outgoing email gets a unique `Message-ID` header (`<uuid@yourdomain.com>`). Replies set `In-Reply-To` and `References` per RFC 5322, so threads display correctly in Gmail, Outlook, and Apple Mail.
+
+| Action | Headers Set | Threading |
+|---|---|---|
+| `send` | Message-ID | New conversation |
+| `send --reply-to-msg <id>` | Message-ID, In-Reply-To, References | Threads into existing conversation |
+| `reply <id>` | Message-ID, In-Reply-To, References | Threads into existing conversation |
+| `reply <id> --all` | Same + preserves CC | Threads with all recipients |
+| `forward <id>` | Message-ID only | New conversation (per RFC) |
 
 ## Agent Integration
 
