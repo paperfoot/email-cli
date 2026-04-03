@@ -1,6 +1,5 @@
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -9,131 +8,70 @@ use tray_item::{IconSource, TrayItem};
 use crate::app::App;
 use crate::cli::DaemonArgs;
 use crate::helpers::{normalize_email, received_email_matches_account, send_desktop_notification};
+use crate::output::Format;
+
+// Embed the menu bar icon at compile time
+const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
 
 impl App {
     pub fn daemon(&self, args: DaemonArgs) -> Result<()> {
         let interval = args.interval;
         let account_filter = args.account.clone();
+        let db_path = self.db_path.clone();
 
-        // Menu bar icon: envelope character as the title
-        let mut tray = TrayItem::new("\u{2709}\u{FE0E}", IconSource::Resource(""))
-            .map_err(|e| anyhow::anyhow!("failed to create menu bar icon: {}", e))?;
+        // Build the tray icon with embedded PNG
+        let mut tray = TrayItem::new("", IconSource::Data {
+            width: 32,
+            height: 32,
+            data: ICON_PNG.to_vec(),
+        }).map_err(|e| anyhow::anyhow!("failed to create menu bar icon: {}", e))?;
 
-        let (tx, rx) = mpsc::channel::<DaemonMsg>();
-        let running = Arc::new(AtomicBool::new(true));
-
-        // Status label
+        // Unread count label
         let unread = self.count_unread(account_filter.as_deref()).unwrap_or(0);
         tray.add_label(&format!("{} unread", unread))
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Sync Now
-        let tx_sync = tx.clone();
+        // Sync Now — triggers via a shared flag
+        let sync_flag = Arc::new(AtomicBool::new(false));
+        let sync_flag_btn = sync_flag.clone();
         tray.add_menu_item("Sync Now", move || {
-            let _ = tx_sync.send(DaemonMsg::Sync);
+            sync_flag_btn.store(true, Ordering::Relaxed);
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
         // Quit
-        tray.add_menu_item("Quit Email CLI", move || {
+        tray.add_menu_item("Quit Email CLI", || {
             std::process::exit(0);
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Periodic sync thread
-        let running_bg = running.clone();
-        let tx_timer = tx.clone();
+        // Spawn background sync thread with its own DB connection
+        let sync_flag_bg = sync_flag.clone();
         thread::spawn(move || {
-            while running_bg.load(Ordering::Relaxed) {
-                thread::sleep(Duration::from_secs(interval));
-                if running_bg.load(Ordering::Relaxed) {
-                    let _ = tx_timer.send(DaemonMsg::Sync);
+            let Ok(app) = App::new(db_path, Format::Json) else {
+                eprintln!("daemon: failed to open database");
+                return;
+            };
+
+            loop {
+                // Sync
+                if let Err(e) = daemon_sync(&app, account_filter.as_deref()) {
+                    eprintln!("sync error: {}", e);
+                }
+
+                // Wait for interval, checking for manual sync trigger
+                for _ in 0..(interval * 4) {
+                    if sync_flag_bg.swap(false, Ordering::Relaxed) {
+                        break; // "Sync Now" was clicked
+                    }
+                    thread::sleep(Duration::from_millis(250));
                 }
             }
         });
 
-        // Do an initial sync
-        let _ = tx.send(DaemonMsg::Sync);
-
-        // Main event loop — blocks, processes tray messages
-        // tray-item on macOS handles the Cocoa run loop internally,
-        // but we drive our sync from the mpsc channel
-        loop {
-            match rx.recv_timeout(Duration::from_millis(200)) {
-                Ok(DaemonMsg::Sync) => {
-                    if let Err(e) = self.daemon_sync(account_filter.as_deref()) {
-                        eprintln!("sync error: {}", e);
-                    }
-                }
-                Ok(DaemonMsg::Quit) => {
-                    running.store(false, Ordering::Relaxed);
-                    std::process::exit(0);
-                }
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Keep the run loop alive
-                    continue;
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        }
-
-        Ok(())
-    }
-
-    fn daemon_sync(&self, account_filter: Option<&str>) -> Result<()> {
-        let accounts = if let Some(account) = account_filter {
-            vec![self.get_account(&normalize_email(account))?]
-        } else {
-            self.list_accounts()?
-        };
-
-        for account in accounts {
-            let client = self.client_for_profile(&account.profile_name)?;
-            let _ = self.sync_sent_account(&client, &account, 25);
-
-            let cursor = self.get_sync_cursor(&account.email, "received")?;
-            let mut after = None;
-            let mut newest_cursor = None;
-
-            loop {
-                let page = client.list_received_emails_page(25, after.as_deref())?;
-                if newest_cursor.is_none() {
-                    newest_cursor = page.data.first().map(|item| item.id.clone());
-                }
-                let mut stop = false;
-                let mut last_id = None;
-
-                for item in page.data {
-                    last_id = Some(item.id.clone());
-                    if cursor.as_deref() == Some(item.id.as_str()) {
-                        stop = true;
-                        break;
-                    }
-                    let detail = client.get_received_email(&item.id)?;
-                    if !received_email_matches_account(&detail, &account.email) {
-                        continue;
-                    }
-                    let from = detail.from.clone().unwrap_or_default();
-                    let subject = detail.subject.clone().unwrap_or_default();
-                    let message_id = self.store_received_message(&account, detail.clone())?;
-                    self.store_received_attachments(message_id, &detail.attachments)?;
-
-                    send_desktop_notification(
-                        &format!("New email to {}", account.email),
-                        &format!("From: {}\n{}", from, subject),
-                    );
-                }
-
-                if stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
-                    break;
-                }
-                after = last_id;
-            }
-
-            if let Some(cursor_id) = newest_cursor {
-                self.set_sync_cursor(&account.email, "received", &cursor_id)?;
-            }
-        }
+        // display() starts the Cocoa event loop — blocks forever.
+        // This is what actually puts the icon in the menu bar.
+        tray.inner_mut().display();
 
         Ok(())
     }
@@ -155,7 +93,60 @@ impl App {
     }
 }
 
-enum DaemonMsg {
-    Sync,
-    Quit,
+fn daemon_sync(app: &App, account_filter: Option<&str>) -> Result<()> {
+    let accounts = if let Some(account) = account_filter {
+        vec![app.get_account(&normalize_email(account))?]
+    } else {
+        app.list_accounts()?
+    };
+
+    for account in accounts {
+        let client = app.client_for_profile(&account.profile_name)?;
+        let _ = app.sync_sent_account(&client, &account, 25);
+
+        let cursor = app.get_sync_cursor(&account.email, "received")?;
+        let mut after = None;
+        let mut newest_cursor = None;
+
+        loop {
+            let page = client.list_received_emails_page(25, after.as_deref())?;
+            if newest_cursor.is_none() {
+                newest_cursor = page.data.first().map(|item| item.id.clone());
+            }
+            let mut stop = false;
+            let mut last_id = None;
+
+            for item in page.data {
+                last_id = Some(item.id.clone());
+                if cursor.as_deref() == Some(item.id.as_str()) {
+                    stop = true;
+                    break;
+                }
+                let detail = client.get_received_email(&item.id)?;
+                if !received_email_matches_account(&detail, &account.email) {
+                    continue;
+                }
+                let from = detail.from.clone().unwrap_or_default();
+                let subject = detail.subject.clone().unwrap_or_default();
+                let message_id = app.store_received_message(&account, detail.clone())?;
+                app.store_received_attachments(message_id, &detail.attachments)?;
+
+                send_desktop_notification(
+                    &format!("New email to {}", account.email),
+                    &format!("From: {}\n{}", from, subject),
+                );
+            }
+
+            if stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
+                break;
+            }
+            after = last_id;
+        }
+
+        if let Some(cursor_id) = newest_cursor {
+            app.set_sync_cursor(&account.email, "received", &cursor_id)?;
+        }
+    }
+
+    Ok(())
 }
