@@ -12,10 +12,6 @@ use crate::output::Format;
 
 const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
 
-fn add_separator(tray: &mut TrayItem) {
-    let _ = tray.add_label("───────────────────────────");
-}
-
 impl App {
     pub fn daemon(&self, args: DaemonArgs) -> Result<()> {
         let interval = args.interval;
@@ -28,17 +24,13 @@ impl App {
             data: ICON_PNG.to_vec(),
         }).map_err(|e| anyhow::anyhow!("failed to create menu bar icon: {}", e))?;
 
-        // ── Status section ─────────────────────────────
         let unread = self.count_unread(account_filter.as_deref()).unwrap_or(0);
         let account_label = account_filter
             .as_deref()
-            .unwrap_or("all accounts");
+            .unwrap_or("All accounts");
         tray.add_label(&format!("{} unread \u{00b7} {}", unread, account_label))
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        add_separator(&mut tray);
-
-        // ── Actions ────────────────────────────────────
         let sync_flag = Arc::new(AtomicBool::new(false));
         let sync_flag_btn = sync_flag.clone();
         tray.add_menu_item("Sync Now", move || {
@@ -46,7 +38,6 @@ impl App {
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Mark All Read
         let mark_read_flag = Arc::new(AtomicBool::new(false));
         let mark_read_btn = mark_read_flag.clone();
         tray.add_menu_item("Mark All Read", move || {
@@ -54,9 +45,6 @@ impl App {
         })
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        add_separator(&mut tray);
-
-        // ── Quit ───────────────────────────────────────
         tray.add_menu_item("Quit", || {
             std::process::exit(0);
         })

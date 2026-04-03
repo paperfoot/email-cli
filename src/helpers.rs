@@ -161,19 +161,24 @@ pub fn escape_html(value: &str) -> String {
 pub fn send_desktop_notification(title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
-        // Prefer terminal-notifier (proper app name + icon), fall back to osascript
-        let tn = std::process::Command::new("terminal-notifier")
-            .args([
-                "-title", "Email CLI",
-                "-subtitle", title,
-                "-message", body,
-                "-sound", "Glass",
-                "-group", "email-cli",
-                "-appIcon", "/System/Library/CoreServices/Mail.app/Contents/Resources/ApplicationIcon.icns",
-            ])
-            .output();
+        // Use our compiled Swift helper for clean native notifications.
+        // Falls back to osascript if the helper isn't found.
+        let helper = notification_helper_path();
+        let icon = notification_icon_path();
 
-        if tn.is_err() || tn.as_ref().is_ok_and(|o| !o.status.success()) {
+        if helper.exists() {
+            let mut args = vec![
+                "Email CLI".to_string(),
+                title.to_string(),
+                body.to_string(),
+            ];
+            if icon.exists() {
+                args.push(icon.display().to_string());
+            }
+            let _ = std::process::Command::new(&helper)
+                .args(&args)
+                .output();
+        } else {
             let escaped_body = body.replace('\\', "\\\\").replace('"', "\\\"");
             let escaped_title = title.replace('\\', "\\\\").replace('"', "\\\"");
             let _ = std::process::Command::new("osascript")
@@ -193,6 +198,35 @@ pub fn send_desktop_notification(title: &str, body: &str) {
             .args([title, body])
             .output();
     }
+}
+
+#[cfg(target_os = "macos")]
+fn notification_helper_path() -> std::path::PathBuf {
+    // Check next to the binary first, then in data dir
+    if let Ok(exe) = std::env::current_exe() {
+        let beside = exe.parent().unwrap_or(std::path::Path::new(".")).join("email-cli-notify");
+        if beside.exists() {
+            return beside;
+        }
+    }
+    data_local_dir()
+        .unwrap_or(std::path::PathBuf::from("."))
+        .join("email-cli")
+        .join("email-cli-notify")
+}
+
+#[cfg(target_os = "macos")]
+fn notification_icon_path() -> std::path::PathBuf {
+    if let Ok(exe) = std::env::current_exe() {
+        let beside = exe.parent().unwrap_or(std::path::Path::new(".")).join("notification_icon.png");
+        if beside.exists() {
+            return beside;
+        }
+    }
+    data_local_dir()
+        .unwrap_or(std::path::PathBuf::from("."))
+        .join("email-cli")
+        .join("notification_icon.png")
 }
 
 pub fn generate_message_id(sender_email: &str) -> String {
