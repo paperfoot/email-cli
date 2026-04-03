@@ -1,18 +1,20 @@
 import Cocoa
 import UserNotifications
 
+// Needed so the app stays alive long enough for the permission dialog
+let app = NSApplication.shared
+
 let args = CommandLine.arguments
 let title = args.count > 1 ? args[1] : ""
 let subtitle = args.count > 2 ? args[2] : ""
 let body = args.count > 3 ? args[3] : ""
 
-let semaphore = DispatchSemaphore(value: 0)
 let center = UNUserNotificationCenter.current()
 
 center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
-    guard granted else {
-        fputs("Notification permission denied\n", stderr)
-        semaphore.signal()
+    if !granted {
+        fputs("Notification permission not granted. Enable in System Settings > Notifications > Email CLI\n", stderr)
+        DispatchQueue.main.async { app.terminate(nil) }
         return
     }
 
@@ -32,8 +34,8 @@ center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error 
         if let error = error {
             fputs("Notification error: \(error)\n", stderr)
         }
-        semaphore.signal()
+        DispatchQueue.main.async { app.terminate(nil) }
     }
 }
 
-_ = semaphore.wait(timeout: .now() + 5)
+app.run()
