@@ -4,7 +4,7 @@ use rusqlite::params;
 use crate::app::App;
 use crate::cli::{
     InboxArchiveArgs, InboxDeleteArgs, InboxListArgs, InboxMarkArgs, InboxPurgeArgs,
-    InboxReadArgs, InboxSearchArgs, InboxThreadArgs, InboxUnarchiveArgs,
+    InboxReadArgs, InboxSearchArgs, InboxStatsArgs, InboxThreadArgs, InboxUnarchiveArgs,
 };
 use crate::helpers::compact_targets;
 use crate::output::print_success_or;
@@ -62,10 +62,8 @@ fn strip_html_tags(html: &str) -> String {
 impl App {
     pub fn inbox_list(&self, args: InboxListArgs) -> Result<()> {
         let archived_val: i64 = if args.archived { 1 } else { 0 };
-        // Fetch limit+1 to detect has_more
         let fetch_limit = (args.limit + 1) as i64;
 
-        // Build WHERE clauses dynamically
         let mut conditions = vec!["archived = ?"];
         let mut param_vals: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(archived_val)];
 
@@ -83,17 +81,17 @@ impl App {
         param_vals.push(Box::new(fetch_limit));
 
         let where_clause = conditions.join(" AND ");
+        // Summary columns only — no text_body/html_body (use inbox read for full body)
         let sql = format!(
-            "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                    reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                    references_json, last_event, is_read, created_at, synced_at, archived
-             FROM messages WHERE {} ORDER BY id DESC LIMIT ?",
+            "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json,
+                    subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived
+             FROM messages WHERE {} ORDER BY created_at DESC, id DESC LIMIT ?",
             where_clause
         );
 
         let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(refs.as_slice(), crate::db::map_message)?;
+        let rows = stmt.query_map(refs.as_slice(), crate::db::map_summary)?;
         let mut messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
 
         let has_more = messages.len() > args.limit;
@@ -375,16 +373,15 @@ impl App {
         // 3. Find all messages whose rfc_message_id OR in_reply_to is in thread_ids
         let placeholders: Vec<String> = (1..=thread_ids.len()).map(|i| format!("?{}", i)).collect();
         let ph = placeholders.join(",");
+        // Summary columns — no bodies for thread list
         let sql = format!(
-            "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                    reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                    references_json, last_event, is_read, created_at, synced_at, archived
+            "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json,
+                    subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived
              FROM messages
              WHERE rfc_message_id IN ({ph}) OR in_reply_to IN ({ph})
              ORDER BY created_at ASC"
         );
 
-        // ?N params are reused by SQLite — provide each once
         let mut param_vals: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         for id in &thread_ids {
             param_vals.push(Box::new(id.clone()));
@@ -392,7 +389,7 @@ impl App {
         let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(refs.as_slice(), crate::db::map_message)?;
+        let rows = stmt.query_map(refs.as_slice(), crate::db::map_summary)?;
         let messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
 
         print_success_or(self.format, &messages, |messages| {
@@ -409,19 +406,18 @@ impl App {
     }
 
     pub fn inbox_search(&self, args: InboxSearchArgs) -> Result<()> {
+        // Summary columns — no bodies for search results
         let sql = if args.account.is_some() {
-            "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json, m.bcc_json,
-                    m.reply_to_json, m.subject, m.text_body, m.html_body, m.rfc_message_id, m.in_reply_to,
-                    m.references_json, m.last_event, m.is_read, m.created_at, m.synced_at, m.archived
+            "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json,
+                    m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived
              FROM messages m
              JOIN messages_fts fts ON m.id = fts.rowid
              WHERE messages_fts MATCH ?1 AND m.account_email = ?2
              ORDER BY m.created_at DESC
              LIMIT ?3"
         } else {
-            "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json, m.bcc_json,
-                    m.reply_to_json, m.subject, m.text_body, m.html_body, m.rfc_message_id, m.in_reply_to,
-                    m.references_json, m.last_event, m.is_read, m.created_at, m.synced_at, m.archived
+            "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json,
+                    m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived
              FROM messages m
              JOIN messages_fts fts ON m.id = fts.rowid
              WHERE messages_fts MATCH ?1
@@ -433,12 +429,12 @@ impl App {
         let rows = if let Some(account) = &args.account {
             stmt.query_map(
                 params![args.query, crate::helpers::normalize_email(account), args.limit as i64],
-                crate::db::map_message,
+                crate::db::map_summary,
             )?
         } else {
             stmt.query_map(
                 params![args.query, args.limit as i64],
-                crate::db::map_message,
+                crate::db::map_summary,
             )?
         };
         let messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
@@ -455,6 +451,60 @@ impl App {
                 println!("no results");
             }
         });
+        Ok(())
+    }
+
+    pub fn inbox_stats(&self, args: InboxStatsArgs) -> Result<()> {
+        let (total, unread, archived, sent) = if let Some(ref account) = args.account {
+            let acct = crate::helpers::normalize_email(account);
+            let total: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE account_email = ?1",
+                params![acct], |r| r.get(0),
+            )?;
+            let unread: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE account_email = ?1 AND is_read = 0 AND direction = 'received' AND archived = 0",
+                params![acct], |r| r.get(0),
+            )?;
+            let archived: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE account_email = ?1 AND archived = 1",
+                params![acct], |r| r.get(0),
+            )?;
+            let sent: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE account_email = ?1 AND direction = 'sent'",
+                params![acct], |r| r.get(0),
+            )?;
+            (total, unread, archived, sent)
+        } else {
+            let total: i64 = self.conn.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
+            let unread: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE is_read = 0 AND direction = 'received' AND archived = 0",
+                [], |r| r.get(0),
+            )?;
+            let archived: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE archived = 1", [], |r| r.get(0),
+            )?;
+            let sent: i64 = self.conn.query_row(
+                "SELECT COUNT(*) FROM messages WHERE direction = 'sent'", [], |r| r.get(0),
+            )?;
+            (total, unread, archived, sent)
+        };
+        let inbox = total - archived - sent;
+        print_success_or(
+            self.format,
+            &serde_json::json!({
+                "total": total,
+                "inbox": inbox,
+                "unread": unread,
+                "archived": archived,
+                "sent": sent,
+            }),
+            |_| {
+                println!("total: {}", total);
+                println!("inbox: {} ({} unread)", inbox, unread);
+                println!("archived: {}", archived);
+                println!("sent: {}", sent);
+            },
+        );
         Ok(())
     }
 

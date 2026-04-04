@@ -214,6 +214,29 @@ pub fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRecord> {
     })
 }
 
+/// Lightweight row mapper for list/search/thread — skips body fields to save tokens.
+/// Column order: id, remote_id, direction, account_email, from_addr, to_json, cc_json,
+///               subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived
+pub fn map_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::models::MessageSummary> {
+    use crate::helpers::from_json;
+    Ok(crate::models::MessageSummary {
+        id: row.get(0)?,
+        remote_id: row.get(1)?,
+        direction: row.get(2)?,
+        account_email: row.get(3)?,
+        from_addr: row.get(4)?,
+        to: from_json(&row.get::<_, String>(5)?).unwrap_or_default(),
+        cc: from_json(&row.get::<_, String>(6)?).unwrap_or_default(),
+        subject: row.get(7)?,
+        rfc_message_id: row.get(8)?,
+        in_reply_to: row.get(9)?,
+        last_event: row.get(10)?,
+        is_read: row.get::<_, i64>(11)? == 1,
+        created_at: row.get(12)?,
+        archived: row.get::<_, i64>(13)? == 1,
+    })
+}
+
 pub fn map_draft(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
     Ok(DraftRecord {
         id: row.get(0)?,
