@@ -77,8 +77,65 @@ fn run(command: Command, db: Option<std::path::PathBuf>, format: Format) -> Resu
         _ => {
             let db_path = db.unwrap_or(default_db_path()?);
             let app = App::new(db_path, format)?;
-            dispatch(app, command)
+            let cmd_name = command_name(&command);
+            let cmd_args = command_args(&command);
+            app.log_command(&cmd_name, &cmd_args);
+            let result = dispatch(app, command);
+            result
         }
+    }
+}
+
+fn command_name(command: &Command) -> String {
+    match command {
+        Command::Profile { .. } => "profile",
+        Command::Account { .. } => "account",
+        Command::Signature { .. } => "signature",
+        Command::Send(_) => "send",
+        Command::Reply(_) => "reply",
+        Command::Forward(_) => "forward",
+        Command::Daemon(_) => "daemon",
+        Command::Update { .. } => "update",
+        Command::Log(_) => "log",
+        Command::Sync(_) => "sync",
+        Command::Inbox { .. } => "inbox",
+        Command::Attachments { .. } => "attachments",
+        Command::Domain { .. } => "domain",
+        Command::Audience { .. } => "audience",
+        Command::Contact { .. } => "contact",
+        Command::Batch { .. } => "batch",
+        Command::ApiKey { .. } => "api-key",
+        Command::Outbox { .. } => "outbox",
+        Command::Webhook { .. } => "webhook",
+        Command::Events { .. } => "events",
+        Command::Draft { .. } => "draft",
+        Command::AgentInfo => "agent-info",
+        Command::Skill { .. } => "skill",
+        Command::Completions { .. } => "completions",
+    }
+    .to_string()
+}
+
+fn command_args(command: &Command) -> String {
+    // Capture subcommand details without sensitive content
+    match command {
+        Command::Inbox { command } => match command {
+            InboxCommand::List(a) => format!("list --limit {} {}", a.limit, a.account.as_deref().unwrap_or("")),
+            InboxCommand::Sync(a) => format!("sync {}", a.account.as_deref().unwrap_or("")),
+            InboxCommand::Read(a) => format!("read {}", a.id),
+            InboxCommand::Delete(a) => format!("delete {}", a.id),
+            InboxCommand::Archive(a) => format!("archive {}", a.id),
+            InboxCommand::Search(a) => format!("search \"{}\"", a.query),
+            InboxCommand::Purge(a) => format!("purge --before {}", a.before),
+        },
+        Command::Send(a) => format!("--to {:?} --subject \"{}\"", a.compose.to, a.compose.subject),
+        Command::Reply(a) => format!("{}{}", a.message_id, if a.all { " --all" } else { "" }),
+        Command::Forward(a) => format!("{} --to {:?}", a.message_id, a.to),
+        Command::Sync(a) => format!("{}", a.account.as_deref().unwrap_or("all")),
+        Command::Events { command } => match command {
+            EventsCommand::List(a) => format!("list{}", a.message.map(|m| format!(" --message {}", m)).unwrap_or_default()),
+        },
+        _ => String::new(),
     }
 }
 
@@ -103,6 +160,18 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
         Command::Forward(args) => app.forward(args)?,
         Command::Daemon(args) => app.daemon(args)?,
         Command::Update { check } => app.update(check)?,
+        Command::Log(args) => {
+            let entries = app.get_command_log(args.limit)?;
+            crate::output::print_success_or(app.format, &entries, |entries| {
+                for e in entries {
+                    let exit = e.exit_code.map(|c| format!(" (exit {})", c)).unwrap_or_default();
+                    println!("{} | {:<12} {}{}", e.created_at, e.command, e.args, exit);
+                }
+                if entries.is_empty() {
+                    println!("no commands logged yet");
+                }
+            });
+        }
         Command::Draft { command } => match command {
             DraftCommand::Create(args) => app.draft_create(args)?,
             DraftCommand::List(args) => app.draft_list(args)?,
