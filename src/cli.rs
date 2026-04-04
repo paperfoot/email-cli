@@ -179,7 +179,7 @@ pub struct SignatureShowArgs {
 
 #[derive(Args, Clone)]
 pub struct ComposeArgs {
-    #[arg(long)]
+    #[arg(long, visible_alias = "from")]
     pub account: Option<String>,
     #[arg(long, required_unless_present = "reply_to_msg")]
     pub to: Vec<String>,
@@ -213,7 +213,7 @@ pub struct SendArgs {
 #[derive(Args)]
 pub struct ReplyArgs {
     pub message_id: i64,
-    #[arg(long)]
+    #[arg(long, visible_alias = "from")]
     pub account: Option<String>,
     /// Reply to all recipients (preserves CC)
     #[arg(long)]
@@ -243,7 +243,7 @@ pub struct DaemonArgs {
 #[derive(Args)]
 pub struct ForwardArgs {
     pub message_id: i64,
-    #[arg(long)]
+    #[arg(long, visible_alias = "from")]
     pub account: Option<String>,
     #[arg(long, required = true)]
     pub to: Vec<String>,

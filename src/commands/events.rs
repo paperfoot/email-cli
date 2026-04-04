@@ -23,7 +23,7 @@ impl App {
             )
         } else {
             (
-                "SELECT id, email_remote_id, event_type, created_at FROM events ORDER BY created_at DESC LIMIT ?2",
+                "SELECT id, email_remote_id, event_type, created_at FROM events ORDER BY created_at DESC LIMIT ?1",
                 vec![],
             )
         };
