@@ -58,6 +58,31 @@ impl std::error::Error for CliError {}
 
 impl From<anyhow::Error> for CliError {
     fn from(err: anyhow::Error) -> Self {
+        let msg = err.to_string().to_lowercase();
+
+        // "not found" errors are input errors, not internal failures.
+        if msg.contains("not found")
+            || msg.contains("no such")
+            || msg.contains("does not exist")
+            || msg.contains("404")
+        {
+            return Self::InvalidInput(err.to_string());
+        }
+
+        // Connection / network errors are transient — retryable.
+        if msg.contains("connection")
+            || msg.contains("timed out")
+            || msg.contains("timeout")
+            || msg.contains("network")
+            || msg.contains("dns")
+            || msg.contains("unreachable")
+            || msg.contains("reset by peer")
+            || msg.contains("broken pipe")
+            || msg.contains("eof")
+        {
+            return Self::Transient(err.to_string());
+        }
+
         Self::Internal(err)
     }
 }

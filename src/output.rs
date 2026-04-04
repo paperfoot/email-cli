@@ -56,9 +56,11 @@ pub fn print_error(format: Format, err: &CliError) {
     });
     match format {
         Format::Json => {
+            // JSON errors go to stdout so agents parsing the machine contract
+            // always receive the error envelope. stderr is for human diagnostics only.
             let output = serde_json::to_string_pretty(&envelope)
                 .unwrap_or_else(|_| r#"{"version":"1","status":"error"}"#.to_string());
-            eprintln!("{}", output);
+            println!("{}", output);
         }
         Format::Human => {
             eprintln!("error: {}", err);

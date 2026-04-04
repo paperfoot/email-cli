@@ -43,6 +43,7 @@ pub struct MessageRecord {
     pub is_read: bool,
     pub created_at: String,
     pub synced_at: String,
+    pub archived: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
