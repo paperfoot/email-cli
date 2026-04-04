@@ -348,9 +348,14 @@ pub enum InboxCommand {
     /// Sync messages from Resend (shortcut for top-level sync)
     Sync(InboxSyncArgs),
     Read(InboxReadArgs),
+    /// Mark messages as read or unread
+    Mark(InboxMarkArgs),
     #[command(visible_alias = "rm")]
     Delete(InboxDeleteArgs),
     Archive(InboxArchiveArgs),
+    Unarchive(InboxUnarchiveArgs),
+    /// Show all messages in a conversation thread
+    Thread(InboxThreadArgs),
     Search(InboxSearchArgs),
     Purge(InboxPurgeArgs),
 }
@@ -373,6 +378,9 @@ pub struct InboxListArgs {
     pub unread: bool,
     #[arg(long)]
     pub archived: bool,
+    /// Cursor for pagination: return messages with id < this value
+    #[arg(long)]
+    pub after: Option<i64>,
 }
 
 #[derive(Args)]
@@ -386,12 +394,38 @@ pub struct InboxReadArgs {
 }
 
 #[derive(Args)]
+pub struct InboxMarkArgs {
+    /// Message IDs to mark
+    pub ids: Vec<i64>,
+    /// Mark as read
+    #[arg(long, group = "state")]
+    pub read: bool,
+    /// Mark as unread
+    #[arg(long, group = "state")]
+    pub unread: bool,
+}
+
+#[derive(Args)]
 pub struct InboxDeleteArgs {
-    pub id: i64,
+    /// Message IDs to delete (one or more)
+    pub ids: Vec<i64>,
 }
 
 #[derive(Args)]
 pub struct InboxArchiveArgs {
+    /// Message IDs to archive (one or more)
+    pub ids: Vec<i64>,
+}
+
+#[derive(Args)]
+pub struct InboxUnarchiveArgs {
+    /// Message IDs to unarchive (one or more)
+    pub ids: Vec<i64>,
+}
+
+#[derive(Args)]
+pub struct InboxThreadArgs {
+    /// Any message ID in the thread
     pub id: i64,
 }
 

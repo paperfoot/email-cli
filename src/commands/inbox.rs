@@ -2,7 +2,10 @@ use anyhow::{Result, bail};
 use rusqlite::params;
 
 use crate::app::App;
-use crate::cli::{InboxListArgs, InboxReadArgs, InboxDeleteArgs, InboxArchiveArgs, InboxSearchArgs, InboxPurgeArgs};
+use crate::cli::{
+    InboxArchiveArgs, InboxDeleteArgs, InboxListArgs, InboxMarkArgs, InboxPurgeArgs,
+    InboxReadArgs, InboxSearchArgs, InboxThreadArgs, InboxUnarchiveArgs,
+};
 use crate::helpers::compact_targets;
 use crate::output::print_success_or;
 
@@ -59,61 +62,54 @@ fn strip_html_tags(html: &str) -> String {
 impl App {
     pub fn inbox_list(&self, args: InboxListArgs) -> Result<()> {
         let archived_val: i64 = if args.archived { 1 } else { 0 };
-        let (sql, has_account) = match (args.account.as_deref(), args.unread) {
-            (Some(_), true) => (
-                "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                        references_json, last_event, is_read, created_at, synced_at
-                 FROM messages
-                 WHERE account_email = ?1 AND is_read = 0 AND archived = ?2
-                 ORDER BY created_at DESC
-                 LIMIT ?3",
-                true,
-            ),
-            (Some(_), false) => (
-                "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                        references_json, last_event, is_read, created_at, synced_at
-                 FROM messages
-                 WHERE account_email = ?1 AND archived = ?2
-                 ORDER BY created_at DESC
-                 LIMIT ?3",
-                true,
-            ),
-            (None, true) => (
-                "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                        references_json, last_event, is_read, created_at, synced_at
-                 FROM messages
-                 WHERE is_read = 0 AND archived = ?1
-                 ORDER BY created_at DESC
-                 LIMIT ?2",
-                false,
-            ),
-            (None, false) => (
-                "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                        references_json, last_event, is_read, created_at, synced_at
-                 FROM messages
-                 WHERE archived = ?1
-                 ORDER BY created_at DESC
-                 LIMIT ?2",
-                false,
-            ),
-        };
-        let mut stmt = self.conn.prepare(sql)?;
-        let rows = if has_account {
-            stmt.query_map(
-                params![crate::helpers::normalize_email(args.account.as_deref().unwrap()), archived_val, args.limit as i64],
-                crate::db::map_message,
-            )?
-        } else {
-            stmt.query_map(params![archived_val, args.limit as i64], crate::db::map_message)?
-        };
-        let messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        // Fetch limit+1 to detect has_more
+        let fetch_limit = (args.limit + 1) as i64;
 
-        print_success_or(self.format, &messages, |messages| {
-            for message in messages {
+        // Build WHERE clauses dynamically
+        let mut conditions = vec!["archived = ?"];
+        let mut param_vals: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(archived_val)];
+
+        if let Some(ref account) = args.account {
+            conditions.push("account_email = ?");
+            param_vals.push(Box::new(crate::helpers::normalize_email(account)));
+        }
+        if args.unread {
+            conditions.push("is_read = 0");
+        }
+        if let Some(after) = args.after {
+            conditions.push("id < ?");
+            param_vals.push(Box::new(after));
+        }
+        param_vals.push(Box::new(fetch_limit));
+
+        let where_clause = conditions.join(" AND ");
+        let sql = format!(
+            "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
+                    reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
+                    references_json, last_event, is_read, created_at, synced_at
+             FROM messages WHERE {} ORDER BY id DESC LIMIT ?",
+            where_clause
+        );
+
+        let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(refs.as_slice(), crate::db::map_message)?;
+        let mut messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let has_more = messages.len() > args.limit;
+        if has_more {
+            messages.truncate(args.limit);
+        }
+        let next_cursor = messages.last().map(|m| m.id);
+
+        let response = serde_json::json!({
+            "messages": messages,
+            "has_more": has_more,
+            "next_cursor": next_cursor,
+        });
+
+        print_success_or(self.format, &response, |_| {
+            for message in &messages {
                 let read_flag = if message.is_read { " " } else { "*" };
                 println!(
                     "{}{} [{}] {} -> {} | {}",
@@ -124,6 +120,11 @@ impl App {
                     compact_targets(&message.to),
                     message.subject
                 );
+            }
+            if has_more {
+                if let Some(cursor) = next_cursor {
+                    println!("--- more results: --after {}", cursor);
+                }
             }
         });
 
@@ -169,27 +170,159 @@ impl App {
         Ok(())
     }
 
-    pub fn inbox_delete(&self, args: InboxDeleteArgs) -> Result<()> {
-        let count = self.conn.execute("DELETE FROM messages WHERE id = ?1", params![args.id])?;
-        if count == 0 {
-            bail!("message {} not found", args.id);
+    pub fn inbox_mark(&self, args: InboxMarkArgs) -> Result<()> {
+        if args.ids.is_empty() {
+            bail!("no message IDs provided");
         }
-        print_success_or(self.format, &serde_json::json!({"id": args.id, "deleted": true}), |_| {
-            println!("deleted message {}", args.id);
-        });
+        let new_state: i64 = if args.unread { 0 } else { 1 };
+        let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let sql = format!(
+            "UPDATE messages SET is_read = {} WHERE id IN ({})",
+            new_state,
+            placeholders.join(",")
+        );
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            args.ids.iter().map(|id| Box::new(*id) as _).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count = self.conn.execute(&sql, refs.as_slice())?;
+        let label = if args.unread { "unread" } else { "read" };
+        print_success_or(
+            self.format,
+            &serde_json::json!({"updated": count, "is_read": new_state == 1}),
+            |_| println!("marked {} message(s) as {}", count, label),
+        );
+        Ok(())
+    }
+
+    pub fn inbox_delete(&self, args: InboxDeleteArgs) -> Result<()> {
+        if args.ids.is_empty() {
+            bail!("no message IDs provided");
+        }
+        let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let sql = format!("DELETE FROM messages WHERE id IN ({})", placeholders.join(","));
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            args.ids.iter().map(|id| Box::new(*id) as _).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count = self.conn.execute(&sql, refs.as_slice())?;
+        if count == 0 {
+            bail!("no matching messages found");
+        }
+        print_success_or(
+            self.format,
+            &serde_json::json!({"deleted": count, "ids": args.ids}),
+            |_| println!("deleted {} message(s)", count),
+        );
         Ok(())
     }
 
     pub fn inbox_archive(&self, args: InboxArchiveArgs) -> Result<()> {
-        let count = self.conn.execute(
-            "UPDATE messages SET archived = 1 WHERE id = ?1",
-            params![args.id],
-        )?;
-        if count == 0 {
-            bail!("message {} not found", args.id);
+        if args.ids.is_empty() {
+            bail!("no message IDs provided");
         }
-        print_success_or(self.format, &serde_json::json!({"id": args.id, "archived": true}), |_| {
-            println!("archived message {}", args.id);
+        let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let sql = format!(
+            "UPDATE messages SET archived = 1 WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            args.ids.iter().map(|id| Box::new(*id) as _).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count = self.conn.execute(&sql, refs.as_slice())?;
+        if count == 0 {
+            bail!("no matching messages found");
+        }
+        print_success_or(
+            self.format,
+            &serde_json::json!({"archived": count, "ids": args.ids}),
+            |_| println!("archived {} message(s)", count),
+        );
+        Ok(())
+    }
+
+    pub fn inbox_unarchive(&self, args: InboxUnarchiveArgs) -> Result<()> {
+        if args.ids.is_empty() {
+            bail!("no message IDs provided");
+        }
+        let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let sql = format!(
+            "UPDATE messages SET archived = 0 WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            args.ids.iter().map(|id| Box::new(*id) as _).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let count = self.conn.execute(&sql, refs.as_slice())?;
+        if count == 0 {
+            bail!("no matching messages found");
+        }
+        print_success_or(
+            self.format,
+            &serde_json::json!({"unarchived": count, "ids": args.ids}),
+            |_| println!("unarchived {} message(s)", count),
+        );
+        Ok(())
+    }
+
+    pub fn inbox_thread(&self, args: InboxThreadArgs) -> Result<()> {
+        // 1. Get the seed message
+        let seed = self.get_message(args.id)?;
+
+        // 2. Collect all known message-ids in the thread
+        let mut thread_ids: Vec<String> = Vec::new();
+        if let Some(ref mid) = seed.rfc_message_id {
+            thread_ids.push(mid.clone());
+        }
+        if let Some(ref irt) = seed.in_reply_to {
+            thread_ids.push(irt.clone());
+        }
+        for r in &seed.references {
+            if !thread_ids.contains(r) {
+                thread_ids.push(r.clone());
+            }
+        }
+
+        if thread_ids.is_empty() {
+            // No threading info — return just the seed message
+            print_success_or(self.format, &vec![&seed], |msgs| {
+                for m in msgs {
+                    println!("{} [{}] {} | {}", m.id, m.direction, m.from_addr, m.subject);
+                }
+            });
+            return Ok(());
+        }
+
+        // 3. Find all messages whose rfc_message_id OR in_reply_to is in thread_ids
+        let placeholders: Vec<String> = (1..=thread_ids.len()).map(|i| format!("?{}", i)).collect();
+        let ph = placeholders.join(",");
+        let sql = format!(
+            "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
+                    reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
+                    references_json, last_event, is_read, created_at, synced_at
+             FROM messages
+             WHERE rfc_message_id IN ({ph}) OR in_reply_to IN ({ph})
+             ORDER BY created_at ASC"
+        );
+
+        // ?N params are reused by SQLite — provide each once
+        let mut param_vals: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        for id in &thread_ids {
+            param_vals.push(Box::new(id.clone()));
+        }
+        let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
+
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(refs.as_slice(), crate::db::map_message)?;
+        let messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+
+        print_success_or(self.format, &messages, |messages| {
+            for m in messages {
+                let read_flag = if m.is_read { " " } else { "*" };
+                println!(
+                    "{}{} [{}] {} | {}",
+                    m.id, read_flag, m.direction, m.from_addr, m.subject
+                );
+            }
+            println!("--- {} messages in thread", messages.len());
         });
         Ok(())
     }
