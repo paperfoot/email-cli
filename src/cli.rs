@@ -358,6 +358,8 @@ pub enum InboxCommand {
     Thread(InboxThreadArgs),
     Search(InboxSearchArgs),
     Purge(InboxPurgeArgs),
+    /// Mailbox counts for sidebar / dashboard
+    Stats(InboxStatsArgs),
 }
 
 #[derive(Args)]
@@ -436,6 +438,12 @@ pub struct InboxSearchArgs {
     pub account: Option<String>,
     #[arg(long, default_value = "25")]
     pub limit: usize,
+}
+
+#[derive(Args)]
+pub struct InboxStatsArgs {
+    #[arg(long)]
+    pub account: Option<String>,
 }
 
 #[derive(Args)]

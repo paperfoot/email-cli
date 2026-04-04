@@ -130,6 +130,7 @@ fn command_args(command: &Command) -> String {
             InboxCommand::Thread(a) => format!("thread {}", a.id),
             InboxCommand::Search(a) => format!("search \"{}\"", a.query),
             InboxCommand::Purge(a) => format!("purge --before {}", a.before),
+            InboxCommand::Stats(a) => format!("stats {}", a.account.as_deref().unwrap_or("")),
         },
         Command::Send(a) => format!("--to {:?} --subject \"{}\"", a.compose.to, a.compose.subject),
         Command::Reply(a) => format!("{}{}", a.message_id, if a.all { " --all" } else { "" }),
@@ -201,6 +202,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             InboxCommand::Thread(args) => app.inbox_thread(args)?,
             InboxCommand::Search(args) => app.inbox_search(args)?,
             InboxCommand::Purge(args) => app.inbox_purge(args)?,
+            InboxCommand::Stats(args) => app.inbox_stats(args)?,
         },
         Command::Attachments { command } => match command {
             AttachmentsCommand::List(args) => app.attachments_list(args)?,

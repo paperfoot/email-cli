@@ -46,6 +46,25 @@ pub struct MessageRecord {
     pub archived: bool,
 }
 
+/// Lightweight message for list/search/thread — no text_body/html_body to save tokens
+#[derive(Debug, Serialize, Clone)]
+pub struct MessageSummary {
+    pub id: i64,
+    pub remote_id: String,
+    pub direction: String,
+    pub account_email: String,
+    pub from_addr: String,
+    pub to: Vec<String>,
+    pub cc: Vec<String>,
+    pub subject: String,
+    pub rfc_message_id: Option<String>,
+    pub in_reply_to: Option<String>,
+    pub last_event: Option<String>,
+    pub is_read: bool,
+    pub created_at: String,
+    pub archived: bool,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct DraftRecord {
     pub id: String,
