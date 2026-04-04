@@ -1,9 +1,19 @@
 use anyhow::Result;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tray_item::{IconSource, TrayItem};
+
+use objc2::MainThreadMarker;
+use objc2::rc::Retained;
+use objc2::runtime::ProtocolObject;
+use objc2::{msg_send_id, sel, ClassType, MainThreadOnly};
+use objc2_app_kit::{
+    NSApplication, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
+};
+use objc2_foundation::{
+    NSData, NSDate, NSRunLoop, NSString,
+};
 
 use crate::app::App;
 use crate::cli::DaemonArgs;
@@ -18,41 +28,25 @@ impl App {
         let account_filter = args.account.clone();
         let db_path = self.db_path.clone();
 
-        let mut tray = TrayItem::new("", IconSource::Data {
-            width: 32,
-            height: 32,
-            data: ICON_PNG.to_vec(),
-        }).map_err(|e| anyhow::anyhow!("failed to create menu bar icon: {}", e))?;
-
-        let unread = self.count_unread(account_filter.as_deref()).unwrap_or(0);
+        let initial_unread = self.count_unread(account_filter.as_deref()).unwrap_or(0);
         let account_label = account_filter
             .as_deref()
-            .unwrap_or("All accounts");
-        tray.add_label(&format!("{} unread \u{00b7} {}", unread, account_label))
-            .map_err(|e| anyhow::anyhow!("{}", e))?;
+            .unwrap_or("All accounts")
+            .to_string();
 
-        let sync_flag = Arc::new(AtomicBool::new(false));
-        let sync_flag_btn = sync_flag.clone();
-        tray.add_menu_item("Sync Now", move || {
-            sync_flag_btn.store(true, Ordering::Relaxed);
-        })
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        // Shared state
+        let unread_count = Arc::new(AtomicUsize::new(initial_unread));
+        let sync_requested = Arc::new(AtomicBool::new(false));
+        let mark_read_requested = Arc::new(AtomicBool::new(false));
+        let is_syncing = Arc::new(AtomicBool::new(false));
 
-        let mark_read_flag = Arc::new(AtomicBool::new(false));
-        let mark_read_btn = mark_read_flag.clone();
-        tray.add_menu_item("Mark All Read", move || {
-            mark_read_btn.store(true, Ordering::Relaxed);
-        })
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+        // Background sync thread
+        let unread_bg = unread_count.clone();
+        let sync_req_bg = sync_requested.clone();
+        let mark_read_bg = mark_read_requested.clone();
+        let syncing_bg = is_syncing.clone();
+        let account_filter_bg = account_filter.clone();
 
-        tray.add_menu_item("Quit", || {
-            std::process::exit(0);
-        })
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-        // ── Background sync thread ────────────────────
-        let sync_flag_bg = sync_flag.clone();
-        let mark_read_bg = mark_read_flag.clone();
         thread::spawn(move || {
             let Ok(app) = App::new(db_path, Format::Json) else {
                 eprintln!("daemon: failed to open database");
@@ -60,33 +54,110 @@ impl App {
             };
 
             loop {
-                // Check "Mark All Read" flag
                 if mark_read_bg.swap(false, Ordering::Relaxed) {
-                    let _ = app.mark_all_read(account_filter.as_deref());
+                    let _ = app.mark_all_read(account_filter_bg.as_deref());
+                    let c = app.count_unread(account_filter_bg.as_deref()).unwrap_or(0);
+                    unread_bg.store(c, Ordering::Relaxed);
                 }
 
-                // Sync
-                if let Err(e) = daemon_sync(&app, account_filter.as_deref()) {
+                syncing_bg.store(true, Ordering::Relaxed);
+                if let Err(e) = daemon_sync(&app, account_filter_bg.as_deref()) {
                     eprintln!("sync error: {}", e);
                 }
+                let count = app.count_unread(account_filter_bg.as_deref()).unwrap_or(0);
+                unread_bg.store(count, Ordering::Relaxed);
+                syncing_bg.store(false, Ordering::Relaxed);
 
-                // Wait for interval, checking for manual triggers
                 for _ in 0..(interval * 4) {
-                    if sync_flag_bg.swap(false, Ordering::Relaxed) {
+                    if sync_req_bg.swap(false, Ordering::Relaxed) {
                         break;
                     }
                     if mark_read_bg.swap(false, Ordering::Relaxed) {
-                        let _ = app.mark_all_read(account_filter.as_deref());
+                        let _ = app.mark_all_read(account_filter_bg.as_deref());
+                        let c = app.count_unread(account_filter_bg.as_deref()).unwrap_or(0);
+                        unread_bg.store(c, Ordering::Relaxed);
                     }
                     thread::sleep(Duration::from_millis(250));
                 }
             }
         });
 
-        // display() starts the Cocoa event loop — blocks forever
-        tray.inner_mut().display();
+        // Main thread: Cocoa event loop
+        // SAFETY: we are on the main thread
+        let mtm = unsafe { MainThreadMarker::new_unchecked() };
 
-        Ok(())
+        let _app = NSApplication::sharedApplication(mtm);
+
+        let status_bar = NSStatusBar::systemStatusBar();
+        let status_item = status_bar.statusItemWithLength(-1.0);
+
+        // Load icon as template image
+        let icon = load_icon(ICON_PNG, mtm);
+        update_status_display(&status_item, &icon, initial_unread, false, mtm);
+
+        // Build menu
+        let menu = NSMenu::new(mtm);
+
+        let status_label = new_menu_item(
+            &format!("{} unread \u{00b7} {}", initial_unread, account_label),
+            mtm,
+        );
+        status_label.setEnabled(false);
+        menu.addItem(&status_label);
+
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
+
+        let sync_item = new_menu_item("Sync Now", mtm);
+        menu.addItem(&sync_item);
+
+        let mark_read_item = new_menu_item("Mark All Read", mtm);
+        menu.addItem(&mark_read_item);
+
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
+
+        let quit_item = new_menu_item("Quit", mtm);
+        menu.addItem(&quit_item);
+
+        status_item.setMenu(Some(&menu));
+
+        // Event loop
+        let sync_req_ui = sync_requested.clone();
+        let mark_read_ui = mark_read_requested.clone();
+        let unread_ui = unread_count.clone();
+        let syncing_ui = is_syncing.clone();
+        let mut last_count = initial_unread;
+        let mut last_syncing = false;
+
+        loop {
+            // Process events for 200ms
+            let date = unsafe { NSDate::dateWithTimeIntervalSinceNow(0.2) };
+            let run_loop = NSRunLoop::currentRunLoop();
+            let mode = unsafe { NSString::from_str("kCFRunLoopDefaultMode") };
+            run_loop.runMode_beforeDate(&mode, &date);
+
+            // Poll menu clicks via tag trick
+            poll_click(&sync_item, &sync_req_ui);
+            poll_click(&mark_read_item, &mark_read_ui);
+            poll_quit(&quit_item);
+
+            // Update display
+            let count = unread_ui.load(Ordering::Relaxed);
+            let syncing = syncing_ui.load(Ordering::Relaxed);
+
+            if count != last_count || syncing != last_syncing {
+                update_status_display(&status_item, &icon, count, syncing, mtm);
+
+                let label = if syncing {
+                    format!("Syncing\u{2026} \u{00b7} {}", account_label)
+                } else {
+                    format!("{} unread \u{00b7} {}", count, account_label)
+                };
+                status_label.setTitle(&NSString::from_str(&label));
+
+                last_count = count;
+                last_syncing = syncing;
+            }
+        }
     }
 
     fn count_unread(&self, account_filter: Option<&str>) -> Result<usize> {
@@ -121,6 +192,73 @@ impl App {
             }
         }
         Ok(())
+    }
+}
+
+// ── AppKit helpers ──────────────────────────────────────────────────────────
+
+fn load_icon(data: &[u8], mtm: MainThreadMarker) -> Retained<NSImage> {
+    let ns_data = NSData::with_bytes(data);
+    let image = NSImage::initWithData(mtm.alloc(), &ns_data).expect("failed to load icon");
+    unsafe { image.setTemplate(true) };
+    let size = objc2_foundation::NSSize::new(18.0, 18.0);
+    unsafe { image.setSize(size) };
+    image
+}
+
+fn update_status_display(
+    item: &NSStatusItem,
+    icon: &NSImage,
+    unread: usize,
+    syncing: bool,
+    mtm: MainThreadMarker,
+) {
+    if let Some(button) = item.button(mtm) {
+        button.setImage(Some(icon));
+        let title = if syncing {
+            "\u{21BB}".to_string() // ↻
+        } else if unread > 99 {
+            "99+".to_string()
+        } else if unread > 0 {
+            unread.to_string()
+        } else {
+            String::new()
+        };
+        button.setTitle(&NSString::from_str(&title));
+    }
+}
+
+fn new_menu_item(title: &str, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
+    let ns_title = NSString::from_str(title);
+    let ns_key = NSString::from_str("");
+    unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &ns_title,
+            None,
+            &ns_key,
+        )
+    }
+}
+
+fn poll_click(item: &NSMenuItem, flag: &AtomicBool) {
+    if item.isHighlighted() {
+        if item.tag() == 0 {
+            item.setTag(1);
+        }
+    } else if item.tag() == 1 {
+        item.setTag(0);
+        flag.store(true, Ordering::Relaxed);
+    }
+}
+
+fn poll_quit(item: &NSMenuItem) {
+    if item.isHighlighted() {
+        if item.tag() == 0 {
+            item.setTag(1);
+        }
+    } else if item.tag() == 1 {
+        std::process::exit(0);
     }
 }
 
