@@ -172,35 +172,10 @@ impl App {
 
         eprintln!("daemon: menu bar active — {} unread", initial_unread);
 
-        // ── Event loop ─────────────────────────────────────────────────────
-        let unread_ui = unread_count.clone();
-        let syncing_ui = is_syncing.clone();
-        let mut last_count = initial_unread;
-        let mut last_syncing = false;
-
-        loop {
-            let date = unsafe { NSDate::dateWithTimeIntervalSinceNow(0.2) };
-            let run_loop = NSRunLoop::currentRunLoop();
-            let mode = unsafe { NSString::from_str("kCFRunLoopDefaultMode") };
-            run_loop.runMode_beforeDate(&mode, &date);
-
-            let count = unread_ui.load(Ordering::Relaxed);
-            let syncing = syncing_ui.load(Ordering::Relaxed);
-
-            if count != last_count || syncing != last_syncing {
-                update_status_display(&status_item, &icon, count, syncing, mtm);
-
-                let label = if syncing {
-                    format!("Syncing\u{2026} \u{00b7} {}", account_label)
-                } else {
-                    format!("{} unread \u{00b7} {}", count, account_label)
-                };
-                status_label.setTitle(&NSString::from_str(&label));
-
-                last_count = count;
-                last_syncing = syncing;
-            }
-        }
+        // app.run() properly handles AppKit events including menu clicks.
+        // TODO: add NSTimer for periodic display updates
+        app.run();
+        Ok(())
     }
 
     fn count_unread(&self, account_filter: Option<&str>) -> Result<usize> {
