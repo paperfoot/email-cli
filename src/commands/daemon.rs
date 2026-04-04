@@ -12,7 +12,7 @@ use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSImage, NSMenu, NSMenuItem, NSStatusBar,
     NSStatusItem,
 };
-use objc2_foundation::{NSData, NSDate, NSRunLoop, NSString};
+use objc2_foundation::{NSData, NSDate, NSRunLoop, NSString, NSTimer};
 
 use crate::app::App;
 use crate::cli::DaemonArgs;
@@ -21,11 +21,29 @@ use crate::output::Format;
 
 const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
 
-// Global flags for the menu handler ObjC callbacks (only one daemon runs at a time)
+// ── Global state shared between ObjC callbacks and the background thread ────
+
 static MENU_SYNC_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 static MENU_MARK_READ_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+static UNREAD_COUNT: OnceLock<Arc<AtomicUsize>> = OnceLock::new();
+static IS_SYNCING: OnceLock<Arc<AtomicBool>> = OnceLock::new();
 
-// ObjC class that receives menu item actions (pattern from glide-wm, picc, tray-rs)
+// UI elements accessed by the timer and action handlers (main thread only)
+struct UiState {
+    status_item: Retained<NSStatusItem>,
+    icon: Retained<NSImage>,
+    status_label: Retained<NSMenuItem>,
+    account_label: String,
+}
+// SAFETY: only accessed from the main thread (ObjC callbacks + NSTimer)
+unsafe impl Send for UiState {}
+unsafe impl Sync for UiState {}
+
+static UI: OnceLock<UiState> = OnceLock::new();
+
+// ── ObjC classes ────────────────────────────────────────────────────────────
+
+// Menu item action handler
 define_class!(
     #[unsafe(super(NSObject))]
     #[thread_kind = MainThreadOnly]
@@ -40,6 +58,8 @@ define_class!(
             if let Some(f) = MENU_SYNC_FLAG.get() {
                 f.store(true, Ordering::Relaxed);
             }
+            // Optimistic UI: show syncing indicator immediately
+            refresh_display(true);
         }
 
         #[unsafe(method(markReadAction:))]
@@ -48,6 +68,11 @@ define_class!(
             if let Some(f) = MENU_MARK_READ_FLAG.get() {
                 f.store(true, Ordering::Relaxed);
             }
+            // Optimistic UI: show 0 unread immediately
+            if let Some(c) = UNREAD_COUNT.get() {
+                c.store(0, Ordering::Relaxed);
+            }
+            refresh_display(false);
         }
 
         #[unsafe(method(quitAction:))]
@@ -57,6 +82,48 @@ define_class!(
         }
     }
 );
+
+// Timer target for periodic display refresh
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    struct TimerTarget;
+
+    unsafe impl NSObjectProtocol for TimerTarget {}
+
+    impl TimerTarget {
+        #[unsafe(method(tick:))]
+        fn tick(&self, _timer: &NSTimer) {
+            let syncing = IS_SYNCING
+                .get()
+                .map(|f| f.load(Ordering::Relaxed))
+                .unwrap_or(false);
+            refresh_display(syncing);
+        }
+    }
+);
+
+/// Update the status item display from global state (must be called on main thread)
+fn refresh_display(syncing: bool) {
+    let count = UNREAD_COUNT
+        .get()
+        .map(|c| c.load(Ordering::Relaxed))
+        .unwrap_or(0);
+
+    if let Some(ui) = UI.get() {
+        let mtm = unsafe { MainThreadMarker::new_unchecked() };
+        update_status_display(&ui.status_item, &ui.icon, count, syncing, mtm);
+
+        let text = if syncing {
+            format!("Syncing\u{2026} \u{00b7} {}", ui.account_label)
+        } else {
+            format!("{} unread \u{00b7} {}", count, ui.account_label)
+        };
+        ui.status_label.setTitle(&NSString::from_str(&text));
+    }
+}
+
+// ── Daemon entry point ──────────────────────────────────────────────────────
 
 impl App {
     pub fn daemon(&self, args: DaemonArgs) -> Result<()> {
@@ -75,6 +142,12 @@ impl App {
         let sync_requested = Arc::new(AtomicBool::new(false));
         let mark_read_requested = Arc::new(AtomicBool::new(false));
         let is_syncing = Arc::new(AtomicBool::new(false));
+
+        // Publish to globals for ObjC callbacks
+        MENU_SYNC_FLAG.set(sync_requested.clone()).ok();
+        MENU_MARK_READ_FLAG.set(mark_read_requested.clone()).ok();
+        UNREAD_COUNT.set(unread_count.clone()).ok();
+        IS_SYNCING.set(is_syncing.clone()).ok();
 
         // Background sync thread
         let unread_bg = unread_count.clone();
@@ -119,13 +192,11 @@ impl App {
         });
 
         // ── Main thread: AppKit setup ──────────────────────────────────────
-        // SAFETY: we are on the main thread
         let mtm = unsafe { MainThreadMarker::new_unchecked() };
 
         let app = NSApplication::sharedApplication(mtm);
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-        // Status bar item
         let status_bar = NSStatusBar::systemStatusBar();
         let status_item = status_bar.statusItemWithLength(-1.0);
 
@@ -134,7 +205,7 @@ impl App {
 
         // ── Menu ───────────────────────────────────────────────────────────
         let menu = NSMenu::new(mtm);
-        menu.setAutoenablesItems(false); // don't let AppKit auto-disable items
+        menu.setAutoenablesItems(false);
 
         let status_label = new_menu_item(
             &format!("{} unread \u{00b7} {}", initial_unread, account_label),
@@ -145,9 +216,6 @@ impl App {
 
         menu.addItem(&NSMenuItem::separatorItem(mtm));
 
-        // Action handler — wired the same way as glide-wm/picc/tray-rs
-        MENU_SYNC_FLAG.set(sync_requested.clone()).ok();
-        MENU_MARK_READ_FLAG.set(mark_read_requested.clone()).ok();
         let handler: Retained<MenuHandler> = unsafe { msg_send![mtm.alloc::<MenuHandler>(), init] };
 
         let sync_item = make_action_item("Sync Now", sel!(syncAction:), &handler, mtm);
@@ -163,17 +231,35 @@ impl App {
         menu.addItem(&quit_item);
 
         status_item.setMenu(Some(&menu));
-
-        // Handler must stay alive — all working examples use mem::forget
         std::mem::forget(handler);
 
-        // finishLaunching initializes AppKit accessibility, menu bar, etc.
+        // Publish UI elements to globals for refresh_display()
+        UI.set(UiState {
+            status_item,
+            icon,
+            status_label,
+            account_label,
+        })
+        .ok();
+
+        // ── NSTimer: refresh display every 1s ──────────────────────────────
+        let timer_target: Retained<TimerTarget> =
+            unsafe { msg_send![mtm.alloc::<TimerTarget>(), init] };
+        unsafe {
+            NSTimer::scheduledTimerWithTimeInterval_target_selector_userInfo_repeats(
+                1.0,
+                &timer_target,
+                sel!(tick:),
+                None,
+                true,
+            )
+        };
+        std::mem::forget(timer_target);
+
         app.finishLaunching();
 
         eprintln!("daemon: menu bar active — {} unread", initial_unread);
 
-        // app.run() properly handles AppKit events including menu clicks.
-        // TODO: add NSTimer for periodic display updates
         app.run();
         Ok(())
     }
@@ -233,12 +319,17 @@ fn update_status_display(
 ) {
     if let Some(button) = item.button(mtm) {
         button.setImage(Some(icon));
+        // Fixed-width badge: pad single digits with a leading space for consistent width
         let title = if syncing {
-            "\u{21BB}".to_string() // ↻
+            " \u{21BB} ".to_string() // ↻ with padding
         } else if unread > 99 {
             "99+".to_string()
         } else if unread > 0 {
-            unread.to_string()
+            if unread < 10 {
+                format!(" {} ", unread) // pad single digit
+            } else {
+                format!("{}", unread)
+            }
         } else {
             String::new()
         };
@@ -250,17 +341,10 @@ fn new_menu_item(title: &str, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     let ns_title = NSString::from_str(title);
     let ns_key = NSString::from_str("");
     unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &ns_title,
-            None,
-            &ns_key,
-        )
+        NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), &ns_title, None, &ns_key)
     }
 }
 
-/// Create a menu item with action + target, matching the pattern from
-/// glide-wm, picc, and tray-rs working examples.
 fn make_action_item(
     title: &str,
     action: objc2::runtime::Sel,
@@ -270,14 +354,8 @@ fn make_action_item(
     let ns_title = NSString::from_str(title);
     let ns_key = NSString::from_str("");
     let item = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            mtm.alloc(),
-            &ns_title,
-            Some(action),
-            &ns_key,
-        )
+        NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), &ns_title, Some(action), &ns_key)
     };
-    // setTarget(Option<&AnyObject>) — deref coercion: &MenuHandler → &NSObject → &AnyObject
     unsafe { item.setTarget(Some(handler)) };
     item
 }
