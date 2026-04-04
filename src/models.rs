@@ -396,6 +396,17 @@ pub struct MessageUpsert {
     pub raw_json: String,
 }
 
+// ── Command log ───────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+pub struct CommandLogEntry {
+    pub id: i64,
+    pub command: String,
+    pub args: String,
+    pub exit_code: Option<i32>,
+    pub created_at: String,
+}
+
 // ── Custom deserializer ────────────────────────────────────────────────────
 
 pub fn deserialize_string_vec<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>

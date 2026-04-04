@@ -132,6 +132,15 @@ pub const SCHEMA_DDL: &str = "
     CREATE INDEX IF NOT EXISTS idx_events_email
     ON events(email_remote_id);
 
+    -- v0.3.0: command audit log
+    CREATE TABLE IF NOT EXISTS command_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        command TEXT NOT NULL,
+        args TEXT NOT NULL DEFAULT '',
+        exit_code INTEGER,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- v0.2.0: FTS5 full-text search
     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
         subject, text_body, html_body, from_addr, to_json, cc_json,
@@ -668,5 +677,39 @@ impl App {
                 self.get_message(id)
             }
         }
+    }
+
+    // ── Command audit log ──────────────────────────────────────────────────
+
+    pub fn log_command(&self, command: &str, args: &str) {
+        let _ = self.conn.execute(
+            "INSERT INTO command_log (command, args) VALUES (?1, ?2)",
+            rusqlite::params![command, args],
+        );
+    }
+
+    pub fn log_command_exit(&self, command: &str, exit_code: i32) {
+        let _ = self.conn.execute(
+            "UPDATE command_log SET exit_code = ?1 WHERE id = (SELECT MAX(id) FROM command_log WHERE command = ?2)",
+            rusqlite::params![exit_code, command],
+        );
+    }
+
+    pub fn get_command_log(&self, limit: usize) -> Result<Vec<CommandLogEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, command, args, exit_code, created_at FROM command_log ORDER BY created_at DESC LIMIT ?1",
+        )?;
+        let entries = stmt
+            .query_map(rusqlite::params![limit as i64], |row| {
+                Ok(CommandLogEntry {
+                    id: row.get(0)?,
+                    command: row.get(1)?,
+                    args: row.get(2)?,
+                    exit_code: row.get(3)?,
+                    created_at: row.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(entries)
     }
 }

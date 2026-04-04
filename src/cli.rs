@@ -94,6 +94,8 @@ pub enum Command {
         #[arg(long)]
         check: bool,
     },
+    /// View command usage log
+    Log(LogArgs),
     /// Machine-readable capability manifest
     AgentInfo,
     /// Install skill file to agent platforms
@@ -228,6 +230,13 @@ pub struct ReplyArgs {
     pub html_file: Option<PathBuf>,
     #[arg(long = "attach")]
     pub attachments: Vec<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct LogArgs {
+    /// Number of entries to show
+    #[arg(long, default_value = "25")]
+    pub limit: usize,
 }
 
 #[derive(Args)]
