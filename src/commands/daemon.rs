@@ -1,13 +1,13 @@
 use anyhow::Result;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::Duration;
 
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2::runtime::ProtocolObject;
-use objc2::{msg_send_id, sel, ClassType, MainThreadOnly};
+use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, Sel};
+use objc2::{define_class, msg_send, sel, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
 };
@@ -21,6 +21,43 @@ use crate::helpers::{normalize_email, received_email_matches_account, send_deskt
 use crate::output::Format;
 
 const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
+
+// Global flags for the menu handler ObjC callbacks (only one daemon runs at a time)
+static MENU_SYNC_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+static MENU_MARK_READ_FLAG: OnceLock<Arc<AtomicBool>> = OnceLock::new();
+
+// ObjC class that receives menu item actions
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    struct MenuHandler;
+
+    unsafe impl NSObjectProtocol for MenuHandler {}
+
+    impl MenuHandler {
+        #[unsafe(method(syncAction:))]
+        fn sync_action(&self, _sender: &AnyObject) {
+            eprintln!("daemon: sync requested via menu");
+            if let Some(f) = MENU_SYNC_FLAG.get() {
+                f.store(true, Ordering::Relaxed);
+            }
+        }
+
+        #[unsafe(method(markReadAction:))]
+        fn mark_read_action(&self, _sender: &AnyObject) {
+            eprintln!("daemon: mark-all-read requested via menu");
+            if let Some(f) = MENU_MARK_READ_FLAG.get() {
+                f.store(true, Ordering::Relaxed);
+            }
+        }
+
+        #[unsafe(method(quitAction:))]
+        fn quit_action(&self, _sender: &AnyObject) {
+            eprintln!("daemon: quit requested via menu");
+            std::process::exit(0);
+        }
+    }
+);
 
 impl App {
     pub fn daemon(&self, args: DaemonArgs) -> Result<()> {
@@ -107,40 +144,39 @@ impl App {
 
         menu.addItem(&NSMenuItem::separatorItem(mtm));
 
-        let sync_item = new_menu_item("Sync Now", mtm);
+        // Wire up global flags for ObjC menu callbacks
+        MENU_SYNC_FLAG.set(sync_requested.clone()).ok();
+        MENU_MARK_READ_FLAG.set(mark_read_requested.clone()).ok();
+        let handler: Retained<MenuHandler> = unsafe { msg_send![mtm.alloc::<MenuHandler>(), init] };
+
+        let sync_item = new_action_item("Sync Now", sel!(syncAction:), &handler, mtm);
         menu.addItem(&sync_item);
 
-        let mark_read_item = new_menu_item("Mark All Read", mtm);
+        let mark_read_item = new_action_item("Mark All Read", sel!(markReadAction:), &handler, mtm);
         menu.addItem(&mark_read_item);
 
         menu.addItem(&NSMenuItem::separatorItem(mtm));
 
-        let quit_item = new_menu_item("Quit", mtm);
+        let quit_item = new_action_item("Quit", sel!(quitAction:), &handler, mtm);
         menu.addItem(&quit_item);
 
         status_item.setMenu(Some(&menu));
 
-        // Event loop
-        let sync_req_ui = sync_requested.clone();
-        let mark_read_ui = mark_read_requested.clone();
+        eprintln!("daemon: menu bar active — {} unread", initial_unread);
+
+        // Event loop — actions fire via ObjC callbacks, we just update the display
+        let _handler = handler; // prevent drop
         let unread_ui = unread_count.clone();
         let syncing_ui = is_syncing.clone();
         let mut last_count = initial_unread;
         let mut last_syncing = false;
 
         loop {
-            // Process events for 200ms
             let date = unsafe { NSDate::dateWithTimeIntervalSinceNow(0.2) };
             let run_loop = NSRunLoop::currentRunLoop();
             let mode = unsafe { NSString::from_str("kCFRunLoopDefaultMode") };
             run_loop.runMode_beforeDate(&mode, &date);
 
-            // Poll menu clicks via tag trick
-            poll_click(&sync_item, &sync_req_ui);
-            poll_click(&mark_read_item, &mark_read_ui);
-            poll_quit(&quit_item);
-
-            // Update display
             let count = unread_ui.load(Ordering::Relaxed);
             let syncing = syncing_ui.load(Ordering::Relaxed);
 
@@ -241,25 +277,24 @@ fn new_menu_item(title: &str, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     }
 }
 
-fn poll_click(item: &NSMenuItem, flag: &AtomicBool) {
-    if item.isHighlighted() {
-        if item.tag() == 0 {
-            item.setTag(1);
-        }
-    } else if item.tag() == 1 {
-        item.setTag(0);
-        flag.store(true, Ordering::Relaxed);
-    }
-}
-
-fn poll_quit(item: &NSMenuItem) {
-    if item.isHighlighted() {
-        if item.tag() == 0 {
-            item.setTag(1);
-        }
-    } else if item.tag() == 1 {
-        std::process::exit(0);
-    }
+fn new_action_item(
+    title: &str,
+    action: Sel,
+    target: &MenuHandler,
+    mtm: MainThreadMarker,
+) -> Retained<NSMenuItem> {
+    let ns_title = NSString::from_str(title);
+    let ns_key = NSString::from_str("");
+    let item = unsafe {
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &ns_title,
+            Some(action),
+            &ns_key,
+        )
+    };
+    unsafe { let _: () = msg_send![&item, setTarget: target]; };
+    item
 }
 
 fn daemon_sync(app: &App, account_filter: Option<&str>) -> Result<()> {
