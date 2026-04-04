@@ -86,7 +86,7 @@ impl App {
         let sql = format!(
             "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                     reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                    references_json, last_event, is_read, created_at, synced_at
+                    references_json, last_event, is_read, created_at, synced_at, archived
              FROM messages WHERE {} ORDER BY id DESC LIMIT ?",
             where_clause
         );
@@ -176,19 +176,39 @@ impl App {
         }
         let new_state: i64 = if args.unread { 0 } else { 1 };
         let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let ph = placeholders.join(",");
         let sql = format!(
             "UPDATE messages SET is_read = {} WHERE id IN ({})",
-            new_state,
-            placeholders.join(",")
+            new_state, ph
         );
         let params: Vec<Box<dyn rusqlite::types::ToSql>> =
             args.ids.iter().map(|id| Box::new(*id) as _).collect();
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count = self.conn.execute(&sql, refs.as_slice())?;
+        self.conn.execute(&sql, refs.as_slice())?;
+
+        // Query back which requested IDs actually exist in the table
+        let select_sql = format!("SELECT id FROM messages WHERE id IN ({})", ph);
+        let mut stmt = self.conn.prepare(&select_sql)?;
+        let existing: Vec<i64> = stmt
+            .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let updated_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
+        let missing_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let count = updated_ids.len();
+
         let label = if args.unread { "unread" } else { "read" };
         print_success_or(
             self.format,
-            &serde_json::json!({"updated": count, "is_read": new_state == 1}),
+            &serde_json::json!({
+                "requested_ids": args.ids,
+                "updated_ids": updated_ids,
+                "missing_ids": missing_ids,
+                "count": count,
+                "is_read": new_state == 1,
+            }),
             |_| println!("marked {} message(s) as {}", count, label),
         );
         Ok(())
@@ -199,17 +219,38 @@ impl App {
             bail!("no message IDs provided");
         }
         let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
-        let sql = format!("DELETE FROM messages WHERE id IN ({})", placeholders.join(","));
+        let ph = placeholders.join(",");
         let params: Vec<Box<dyn rusqlite::types::ToSql>> =
             args.ids.iter().map(|id| Box::new(*id) as _).collect();
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count = self.conn.execute(&sql, refs.as_slice())?;
+
+        // Before deleting, find which requested IDs actually exist
+        let select_sql = format!("SELECT id FROM messages WHERE id IN ({})", ph);
+        let mut stmt = self.conn.prepare(&select_sql)?;
+        let existing: Vec<i64> = stmt
+            .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let deleted_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
+        let missing_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+
+        let sql = format!("DELETE FROM messages WHERE id IN ({})", ph);
+        self.conn.execute(&sql, refs.as_slice())?;
+        let count = deleted_ids.len();
+
         if count == 0 {
             bail!("no matching messages found");
         }
         print_success_or(
             self.format,
-            &serde_json::json!({"deleted": count, "ids": args.ids}),
+            &serde_json::json!({
+                "requested_ids": args.ids,
+                "deleted_ids": deleted_ids,
+                "missing_ids": missing_ids,
+                "count": count,
+            }),
             |_| println!("deleted {} message(s)", count),
         );
         Ok(())
@@ -220,20 +261,40 @@ impl App {
             bail!("no message IDs provided");
         }
         let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let ph = placeholders.join(",");
         let sql = format!(
             "UPDATE messages SET archived = 1 WHERE id IN ({})",
-            placeholders.join(",")
+            ph
         );
         let params: Vec<Box<dyn rusqlite::types::ToSql>> =
             args.ids.iter().map(|id| Box::new(*id) as _).collect();
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count = self.conn.execute(&sql, refs.as_slice())?;
+        self.conn.execute(&sql, refs.as_slice())?;
+
+        // Query back which requested IDs actually exist in the table
+        let select_sql = format!("SELECT id FROM messages WHERE id IN ({})", ph);
+        let mut stmt = self.conn.prepare(&select_sql)?;
+        let existing: Vec<i64> = stmt
+            .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let updated_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
+        let missing_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let count = updated_ids.len();
+
         if count == 0 {
             bail!("no matching messages found");
         }
         print_success_or(
             self.format,
-            &serde_json::json!({"archived": count, "ids": args.ids}),
+            &serde_json::json!({
+                "requested_ids": args.ids,
+                "updated_ids": updated_ids,
+                "missing_ids": missing_ids,
+                "count": count,
+            }),
             |_| println!("archived {} message(s)", count),
         );
         Ok(())
@@ -244,20 +305,40 @@ impl App {
             bail!("no message IDs provided");
         }
         let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
+        let ph = placeholders.join(",");
         let sql = format!(
             "UPDATE messages SET archived = 0 WHERE id IN ({})",
-            placeholders.join(",")
+            ph
         );
         let params: Vec<Box<dyn rusqlite::types::ToSql>> =
             args.ids.iter().map(|id| Box::new(*id) as _).collect();
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count = self.conn.execute(&sql, refs.as_slice())?;
+        self.conn.execute(&sql, refs.as_slice())?;
+
+        // Query back which requested IDs actually exist in the table
+        let select_sql = format!("SELECT id FROM messages WHERE id IN ({})", ph);
+        let mut stmt = self.conn.prepare(&select_sql)?;
+        let existing: Vec<i64> = stmt
+            .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
+            .filter_map(|r| r.ok())
+            .collect();
+        let updated_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
+        let missing_ids: Vec<i64> =
+            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let count = updated_ids.len();
+
         if count == 0 {
             bail!("no matching messages found");
         }
         print_success_or(
             self.format,
-            &serde_json::json!({"unarchived": count, "ids": args.ids}),
+            &serde_json::json!({
+                "requested_ids": args.ids,
+                "updated_ids": updated_ids,
+                "missing_ids": missing_ids,
+                "count": count,
+            }),
             |_| println!("unarchived {} message(s)", count),
         );
         Ok(())
@@ -297,7 +378,7 @@ impl App {
         let sql = format!(
             "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                     reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                    references_json, last_event, is_read, created_at, synced_at
+                    references_json, last_event, is_read, created_at, synced_at, archived
              FROM messages
              WHERE rfc_message_id IN ({ph}) OR in_reply_to IN ({ph})
              ORDER BY created_at ASC"
@@ -328,14 +409,10 @@ impl App {
     }
 
     pub fn inbox_search(&self, args: InboxSearchArgs) -> Result<()> {
-        let _ = self.conn.execute_batch(
-            "INSERT OR REPLACE INTO messages_fts(messages_fts) VALUES('rebuild');"
-        );
-
         let sql = if args.account.is_some() {
             "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json, m.bcc_json,
                     m.reply_to_json, m.subject, m.text_body, m.html_body, m.rfc_message_id, m.in_reply_to,
-                    m.references_json, m.last_event, m.is_read, m.created_at, m.synced_at
+                    m.references_json, m.last_event, m.is_read, m.created_at, m.synced_at, m.archived
              FROM messages m
              JOIN messages_fts fts ON m.id = fts.rowid
              WHERE messages_fts MATCH ?1 AND m.account_email = ?2
@@ -344,7 +421,7 @@ impl App {
         } else {
             "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json, m.bcc_json,
                     m.reply_to_json, m.subject, m.text_body, m.html_body, m.rfc_message_id, m.in_reply_to,
-                    m.references_json, m.last_event, m.is_read, m.created_at, m.synced_at
+                    m.references_json, m.last_event, m.is_read, m.created_at, m.synced_at, m.archived
              FROM messages m
              JOIN messages_fts fts ON m.id = fts.rowid
              WHERE messages_fts MATCH ?1

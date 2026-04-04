@@ -108,6 +108,12 @@ pub const SCHEMA_DDL: &str = "
     CREATE INDEX IF NOT EXISTS idx_attachments_message
     ON attachments(message_id);
 
+    CREATE INDEX IF NOT EXISTS idx_messages_rfc_message_id
+    ON messages(rfc_message_id);
+
+    CREATE INDEX IF NOT EXISTS idx_messages_in_reply_to
+    ON messages(in_reply_to);
+
     -- v0.2.0: outbox table
     CREATE TABLE IF NOT EXISTS outbox (
         id TEXT PRIMARY KEY,
@@ -146,6 +152,27 @@ pub const SCHEMA_DDL: &str = "
         subject, text_body, html_body, from_addr, to_json, cc_json,
         content=messages, content_rowid=id
     );
+
+    -- Keep FTS index in sync via triggers (avoids full rebuild on every search)
+    CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts(rowid, subject, text_body, html_body, from_addr, to_json, cc_json)
+        VALUES (new.id, new.subject, new.text_body, new.html_body, new.from_addr, new.to_json, new.cc_json);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, subject, text_body, html_body, from_addr, to_json, cc_json)
+        VALUES ('delete', old.id, old.subject, old.text_body, old.html_body, old.from_addr, old.to_json, old.cc_json);
+        INSERT INTO messages_fts(rowid, subject, text_body, html_body, from_addr, to_json, cc_json)
+        VALUES (new.id, new.subject, new.text_body, new.html_body, new.from_addr, new.to_json, new.cc_json);
+    END;
+
+    CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+        INSERT INTO messages_fts(messages_fts, rowid, subject, text_body, html_body, from_addr, to_json, cc_json)
+        VALUES ('delete', old.id, old.subject, old.text_body, old.html_body, old.from_addr, old.to_json, old.cc_json);
+    END;
+
+    -- One-time rebuild so existing databases get indexed
+    INSERT OR REPLACE INTO messages_fts(messages_fts) VALUES('rebuild');
 ";
 
 // ── Row mappers ──────────────────────────────────────────────────────────────
@@ -183,6 +210,7 @@ pub fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRecord> {
         is_read: row.get::<_, i64>(16)? == 1,
         created_at: row.get(17)?,
         synced_at: row.get(18)?,
+        archived: row.get::<_, i64>(19)? == 1,
     })
 }
 
@@ -279,7 +307,7 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at
+                       references_json, last_event, is_read, created_at, synced_at, archived
                 FROM messages
                 WHERE id = ?1
                 ",
@@ -295,7 +323,7 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at
+                       references_json, last_event, is_read, created_at, synced_at, archived
                 FROM messages
                 WHERE remote_id = ?1
                 LIMIT 1
@@ -317,7 +345,7 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at
+                       references_json, last_event, is_read, created_at, synced_at, archived
                 FROM messages
                 WHERE account_email = ?1 AND is_read = 0
                 ORDER BY created_at DESC
@@ -328,7 +356,7 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at
+                       references_json, last_event, is_read, created_at, synced_at, archived
                 FROM messages
                 WHERE account_email = ?1
                 ORDER BY created_at DESC
@@ -339,7 +367,7 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at
+                       references_json, last_event, is_read, created_at, synced_at, archived
                 FROM messages
                 WHERE is_read = 0
                 ORDER BY created_at DESC
@@ -350,7 +378,7 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at
+                       references_json, last_event, is_read, created_at, synced_at, archived
                 FROM messages
                 ORDER BY created_at DESC
                 LIMIT ?1
