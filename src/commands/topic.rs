@@ -72,4 +72,20 @@ impl App {
         });
         Ok(())
     }
+
+    pub fn topic_contact_list(&self, args: TopicContactListArgs) -> Result<()> {
+        let client = self.default_client()?;
+        let list = client.list_contact_topics(&args.contact)?;
+        print_success_or(self.format, &list, |list| {
+            for topic in &list.data {
+                let name = topic.name.as_deref().unwrap_or("");
+                let sub = topic.subscription.as_deref().unwrap_or("(unknown)");
+                println!("{} {} subscription={}", topic.id, name, sub);
+            }
+            if list.data.is_empty() {
+                println!("no topic subscriptions");
+            }
+        });
+        Ok(())
+    }
 }

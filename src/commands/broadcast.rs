@@ -67,6 +67,25 @@ impl App {
         Ok(())
     }
 
+    pub fn broadcast_update(&self, args: BroadcastUpdateArgs) -> Result<()> {
+        let client = self.default_client()?;
+        let payload = UpdateBroadcastRequest {
+            from: args.from,
+            subject: args.subject,
+            html: args.html,
+            text: args.text,
+            name: args.name,
+            reply_to: split_csv(args.reply_to),
+            preview_text: args.preview_text,
+            scheduled_at: args.scheduled_at,
+        };
+        let broadcast = client.update_broadcast(&args.id, &payload)?;
+        print_success_or(self.format, &broadcast, |b| {
+            println!("updated broadcast {}", b.id);
+        });
+        Ok(())
+    }
+
     pub fn broadcast_send(&self, args: BroadcastSendArgs) -> Result<()> {
         let client = self.default_client()?;
         let payload = SendBroadcastRequest { scheduled_at: args.scheduled_at };

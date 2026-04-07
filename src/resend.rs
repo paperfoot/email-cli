@@ -160,6 +160,51 @@ impl ResendClient {
         self.delete_request(&format!("/api-keys/{}", id))
     }
 
+    // Segments (Audiences renamed to Segments in November 2025; /audiences endpoints
+    // are still backward-compatible.)
+    pub fn list_segments(&self) -> Result<SegmentList> {
+        self.get_json("/segments", &[])
+    }
+
+    pub fn get_segment(&self, id: &str) -> Result<Segment> {
+        self.get_json(&format!("/segments/{}", id), &[])
+    }
+
+    pub fn create_segment(&self, payload: &CreateSegmentRequest) -> Result<CreateSegmentResponse> {
+        self.post_json("/segments", payload, None)
+    }
+
+    pub fn delete_segment(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/segments/{}", id))
+    }
+
+    pub fn add_contact_to_segment(
+        &self,
+        contact_id_or_email: &str,
+        segment_id: &str,
+    ) -> Result<ContactSegmentResponse> {
+        self.post_json(
+            &format!("/contacts/{}/segments/{}", contact_id_or_email, segment_id),
+            &serde_json::json!({}),
+            None,
+        )
+    }
+
+    pub fn remove_contact_from_segment(
+        &self,
+        contact_id_or_email: &str,
+        segment_id: &str,
+    ) -> Result<ContactSegmentResponse> {
+        self.delete_json(&format!(
+            "/contacts/{}/segments/{}",
+            contact_id_or_email, segment_id
+        ))
+    }
+
+    pub fn list_contact_segments(&self, contact_id_or_email: &str) -> Result<SegmentList> {
+        self.get_json(&format!("/contacts/{}/segments", contact_id_or_email), &[])
+    }
+
     // Broadcasts
     pub fn list_broadcasts(&self) -> Result<BroadcastList> {
         self.get_json("/broadcasts", &[])
@@ -171,6 +216,14 @@ impl ResendClient {
 
     pub fn create_broadcast(&self, payload: &CreateBroadcastRequest) -> Result<CreateBroadcastResponse> {
         self.post_json("/broadcasts", payload, None)
+    }
+
+    pub fn update_broadcast(
+        &self,
+        id: &str,
+        payload: &UpdateBroadcastRequest,
+    ) -> Result<Broadcast> {
+        self.patch_json(&format!("/broadcasts/{}", id), payload)
     }
 
     pub fn send_broadcast(&self, id: &str, payload: &SendBroadcastRequest) -> Result<SendBroadcastResponse> {
@@ -195,6 +248,14 @@ impl ResendClient {
         payload: &CreateContactPropertyRequest,
     ) -> Result<CreateContactPropertyResponse> {
         self.post_json("/contact-properties", payload, None)
+    }
+
+    pub fn update_contact_property(
+        &self,
+        id: &str,
+        payload: &UpdateContactPropertyRequest,
+    ) -> Result<ContactProperty> {
+        self.patch_json(&format!("/contact-properties/{}", id), payload)
     }
 
     pub fn delete_contact_property(&self, id: &str) -> Result<DeleteResponse> {
@@ -227,6 +288,10 @@ impl ResendClient {
             &format!("/contacts/{}/topics", contact_id_or_email),
             payload,
         )
+    }
+
+    pub fn list_contact_topics(&self, contact_id_or_email: &str) -> Result<ContactTopicList> {
+        self.get_json(&format!("/contacts/{}/topics", contact_id_or_email), &[])
     }
 
     pub fn download_attachment(&self, url: &str) -> Result<Vec<u8>> {
@@ -303,6 +368,34 @@ impl ResendClient {
                     continue;
                 }
                 Err(err) => return Err(err).with_context(|| format!("POST {} failed", path)),
+            };
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                sleep(retry_delay(response.headers(), attempt));
+                continue;
+            }
+            if response.status().is_server_error() {
+                sleep(backoff(attempt));
+                continue;
+            }
+            return decode_json(response);
+        }
+        bail!("Resend API kept rate limiting for {}", path)
+    }
+
+    fn delete_json<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        for attempt in 0..5 {
+            let response = match self
+                .client
+                .delete(format!("https://api.resend.com{}", path))
+                .bearer_auth(&self.api_key)
+                .send()
+            {
+                Ok(response) => response,
+                Err(err) if should_retry_error(&err) => {
+                    sleep(backoff(attempt));
+                    continue;
+                }
+                Err(err) => return Err(err).with_context(|| format!("DELETE {} failed", path)),
             };
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 sleep(retry_delay(response.headers(), attempt));

@@ -65,6 +65,9 @@ impl From<anyhow::Error> for CliError {
             || msg.contains("no such")
             || msg.contains("does not exist")
             || msg.contains("404")
+            || msg.contains("must be a json")
+            || msg.contains("invalid json")
+            || msg.contains("must be 'opt_in'")
         {
             return Self::InvalidInput(err.to_string());
         }

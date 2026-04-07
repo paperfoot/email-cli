@@ -109,6 +109,11 @@ pub enum Command {
         #[command(subcommand)]
         command: TopicCommand,
     },
+    /// Manage Resend segments (replaces the deprecated "audience" noun, Nov 2025)
+    Segment {
+        #[command(subcommand)]
+        command: SegmentCommand,
+    },
     /// Self-update from GitHub Releases
     Update {
         /// Check only, don't install
@@ -768,9 +773,33 @@ pub enum BroadcastCommand {
     Get(BroadcastGetArgs),
     #[command(visible_alias = "new")]
     Create(BroadcastCreateArgs),
+    Update(BroadcastUpdateArgs),
     Send(BroadcastSendArgs),
     #[command(visible_alias = "rm")]
     Delete(BroadcastDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct BroadcastUpdateArgs {
+    pub id: String,
+    #[arg(long)]
+    pub from: Option<String>,
+    #[arg(long)]
+    pub subject: Option<String>,
+    #[arg(long)]
+    pub html: Option<String>,
+    #[arg(long)]
+    pub text: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Reply-to address(es), comma-separated.
+    #[arg(long)]
+    pub reply_to: Option<String>,
+    #[arg(long)]
+    pub preview_text: Option<String>,
+    /// Schedule the broadcast (ISO-8601 / RFC-3339 timestamp).
+    #[arg(long)]
+    pub scheduled_at: Option<String>,
 }
 
 #[derive(Args)]
@@ -828,8 +857,20 @@ pub enum ContactPropertyCommand {
     Get(ContactPropertyGetArgs),
     #[command(visible_alias = "new")]
     Create(ContactPropertyCreateArgs),
+    Update(ContactPropertyUpdateArgs),
     #[command(visible_alias = "rm")]
     Delete(ContactPropertyDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct ContactPropertyUpdateArgs {
+    pub id: String,
+    /// New fallback value (must match the property's type).
+    #[arg(long)]
+    pub fallback: Option<String>,
+    /// Property type for fallback parsing: "string" or "number". Defaults to "string".
+    #[arg(long, default_value = "string")]
+    pub property_type: String,
 }
 
 #[derive(Args)]
@@ -869,6 +910,15 @@ pub enum TopicCommand {
     Delete(TopicDeleteArgs),
     /// Subscribe / unsubscribe a contact to a topic
     ContactSet(TopicContactSetArgs),
+    /// List a contact's topic subscriptions
+    ContactList(TopicContactListArgs),
+}
+
+#[derive(Args)]
+pub struct TopicContactListArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
 }
 
 #[derive(Args)]
@@ -903,4 +953,57 @@ pub struct TopicContactSetArgs {
     /// Subscription state: "opt_in" or "opt_out".
     #[arg(long)]
     pub subscription: String,
+}
+
+// ── Segment commands (Audiences renamed to Segments in November 2025) ─────
+
+#[derive(Subcommand)]
+pub enum SegmentCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(SegmentGetArgs),
+    #[command(visible_alias = "new")]
+    Create(SegmentCreateArgs),
+    #[command(visible_alias = "rm")]
+    Delete(SegmentDeleteArgs),
+    /// Add a contact to a segment
+    ContactAdd(SegmentContactArgs),
+    /// Remove a contact from a segment
+    ContactRemove(SegmentContactArgs),
+    /// List the segments a contact belongs to
+    ContactList(SegmentContactListArgs),
+}
+
+#[derive(Args)]
+pub struct SegmentGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct SegmentCreateArgs {
+    #[arg(long)]
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct SegmentDeleteArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct SegmentContactArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
+    /// Segment id
+    #[arg(long)]
+    pub segment: String,
+}
+
+#[derive(Args)]
+pub struct SegmentContactListArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
 }

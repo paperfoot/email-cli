@@ -112,6 +112,7 @@ fn command_name(command: &Command) -> String {
         Command::Broadcast { .. } => "broadcast",
         Command::ContactProperty { .. } => "contact-property",
         Command::Topic { .. } => "topic",
+        Command::Segment { .. } => "segment",
         Command::Draft { .. } => "draft",
         Command::AgentInfo => "agent-info",
         Command::Skill { .. } => "skill",
@@ -259,6 +260,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             BroadcastCommand::List => app.broadcast_list()?,
             BroadcastCommand::Get(args) => app.broadcast_get(args)?,
             BroadcastCommand::Create(args) => app.broadcast_create(args)?,
+            BroadcastCommand::Update(args) => app.broadcast_update(args)?,
             BroadcastCommand::Send(args) => app.broadcast_send(args)?,
             BroadcastCommand::Delete(args) => app.broadcast_delete(args)?,
         },
@@ -266,6 +268,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             ContactPropertyCommand::List => app.contact_property_list()?,
             ContactPropertyCommand::Get(args) => app.contact_property_get(args)?,
             ContactPropertyCommand::Create(args) => app.contact_property_create(args)?,
+            ContactPropertyCommand::Update(args) => app.contact_property_update(args)?,
             ContactPropertyCommand::Delete(args) => app.contact_property_delete(args)?,
         },
         Command::Topic { command } => match command {
@@ -274,6 +277,16 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             TopicCommand::Create(args) => app.topic_create(args)?,
             TopicCommand::Delete(args) => app.topic_delete(args)?,
             TopicCommand::ContactSet(args) => app.topic_contact_set(args)?,
+            TopicCommand::ContactList(args) => app.topic_contact_list(args)?,
+        },
+        Command::Segment { command } => match command {
+            SegmentCommand::List => app.segment_list()?,
+            SegmentCommand::Get(args) => app.segment_get(args)?,
+            SegmentCommand::Create(args) => app.segment_create(args)?,
+            SegmentCommand::Delete(args) => app.segment_delete(args)?,
+            SegmentCommand::ContactAdd(args) => app.segment_contact_add(args)?,
+            SegmentCommand::ContactRemove(args) => app.segment_contact_remove(args)?,
+            SegmentCommand::ContactList(args) => app.segment_contact_list(args)?,
         },
         Command::AgentInfo | Command::Skill { .. } | Command::Completions { .. } => {
             unreachable!()
