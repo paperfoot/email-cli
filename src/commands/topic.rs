@@ -1,0 +1,75 @@
+use anyhow::Result;
+
+use crate::app::App;
+use crate::cli::*;
+use crate::models::*;
+use crate::output::print_success_or;
+
+impl App {
+    pub fn topic_list(&self) -> Result<()> {
+        let client = self.default_client()?;
+        let list = client.list_topics()?;
+        print_success_or(self.format, &list, |list| {
+            for topic in &list.data {
+                let default = topic.default_subscription.as_deref().unwrap_or("(unset)");
+                println!("{} {} default={}", topic.id, topic.name, default);
+            }
+            if list.data.is_empty() {
+                println!("no topics");
+            }
+        });
+        Ok(())
+    }
+
+    pub fn topic_get(&self, args: TopicGetArgs) -> Result<()> {
+        let client = self.default_client()?;
+        let topic = client.get_topic(&args.id)?;
+        print_success_or(self.format, &topic, |t| {
+            println!("id: {}", t.id);
+            println!("name: {}", t.name);
+            if let Some(d) = &t.description { println!("description: {}", d); }
+            if let Some(d) = &t.default_subscription { println!("default_subscription: {}", d); }
+        });
+        Ok(())
+    }
+
+    pub fn topic_create(&self, args: TopicCreateArgs) -> Result<()> {
+        let client = self.default_client()?;
+        let response = client.create_topic(&CreateTopicRequest {
+            name: args.name,
+            description: args.description,
+            default_subscription: args.default_subscription,
+        })?;
+        print_success_or(self.format, &response, |r| {
+            println!("created topic {}", r.id);
+        });
+        Ok(())
+    }
+
+    pub fn topic_delete(&self, args: TopicDeleteArgs) -> Result<()> {
+        let client = self.default_client()?;
+        let response = client.delete_topic(&args.id)?;
+        print_success_or(self.format, &response, |r| {
+            println!("deleted: {}", r.deleted);
+        });
+        Ok(())
+    }
+
+    pub fn topic_contact_set(&self, args: TopicContactSetArgs) -> Result<()> {
+        if args.subscription != "opt_in" && args.subscription != "opt_out" {
+            anyhow::bail!("--subscription must be 'opt_in' or 'opt_out', got '{}'", args.subscription);
+        }
+        let client = self.default_client()?;
+        let payload = UpdateContactTopicsRequest {
+            topics: vec![ContactTopicSubscription {
+                id: args.topic.clone(),
+                subscription: args.subscription.clone(),
+            }],
+        };
+        let response = client.update_contact_topics(&args.contact, &payload)?;
+        print_success_or(self.format, &response, |_r| {
+            println!("set contact={} topic={} subscription={}", args.contact, args.topic, args.subscription);
+        });
+        Ok(())
+    }
+}
