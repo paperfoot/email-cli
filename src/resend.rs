@@ -160,6 +160,75 @@ impl ResendClient {
         self.delete_request(&format!("/api-keys/{}", id))
     }
 
+    // Broadcasts
+    pub fn list_broadcasts(&self) -> Result<BroadcastList> {
+        self.get_json("/broadcasts", &[])
+    }
+
+    pub fn get_broadcast(&self, id: &str) -> Result<Broadcast> {
+        self.get_json(&format!("/broadcasts/{}", id), &[])
+    }
+
+    pub fn create_broadcast(&self, payload: &CreateBroadcastRequest) -> Result<CreateBroadcastResponse> {
+        self.post_json("/broadcasts", payload, None)
+    }
+
+    pub fn send_broadcast(&self, id: &str, payload: &SendBroadcastRequest) -> Result<SendBroadcastResponse> {
+        self.post_json(&format!("/broadcasts/{}/send", id), payload, None)
+    }
+
+    pub fn delete_broadcast(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/broadcasts/{}", id))
+    }
+
+    // Contact Properties (schema CRUD)
+    pub fn list_contact_properties(&self) -> Result<ContactPropertyList> {
+        self.get_json("/contact-properties", &[])
+    }
+
+    pub fn get_contact_property(&self, id: &str) -> Result<ContactProperty> {
+        self.get_json(&format!("/contact-properties/{}", id), &[])
+    }
+
+    pub fn create_contact_property(
+        &self,
+        payload: &CreateContactPropertyRequest,
+    ) -> Result<CreateContactPropertyResponse> {
+        self.post_json("/contact-properties", payload, None)
+    }
+
+    pub fn delete_contact_property(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/contact-properties/{}", id))
+    }
+
+    // Topics
+    pub fn list_topics(&self) -> Result<TopicList> {
+        self.get_json("/topics", &[])
+    }
+
+    pub fn get_topic(&self, id: &str) -> Result<Topic> {
+        self.get_json(&format!("/topics/{}", id), &[])
+    }
+
+    pub fn create_topic(&self, payload: &CreateTopicRequest) -> Result<CreateTopicResponse> {
+        self.post_json("/topics", payload, None)
+    }
+
+    pub fn delete_topic(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/topics/{}", id))
+    }
+
+    pub fn update_contact_topics(
+        &self,
+        contact_id_or_email: &str,
+        payload: &UpdateContactTopicsRequest,
+    ) -> Result<serde_json::Value> {
+        self.patch_json(
+            &format!("/contacts/{}/topics", contact_id_or_email),
+            payload,
+        )
+    }
+
     pub fn download_attachment(&self, url: &str) -> Result<Vec<u8>> {
         for attempt in 0..5 {
             let response = match self.client.get(url).send() {

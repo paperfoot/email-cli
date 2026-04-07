@@ -88,6 +88,27 @@ pub enum Command {
         #[command(subcommand)]
         command: EventsCommand,
     },
+    /// List sent emails (Resend GET /emails)
+    Email {
+        #[command(subcommand)]
+        command: EmailCommand,
+    },
+    /// Manage Resend broadcasts (campaign sends with native unsubscribe wiring)
+    Broadcast {
+        #[command(subcommand)]
+        command: BroadcastCommand,
+    },
+    /// Manage Resend contact-property schema (define custom fields before assigning values)
+    #[command(name = "contact-property")]
+    ContactProperty {
+        #[command(subcommand)]
+        command: ContactPropertyCommand,
+    },
+    /// Manage Resend topics (granular subscription preferences for broadcasts)
+    Topic {
+        #[command(subcommand)]
+        command: TopicCommand,
+    },
     /// Self-update from GitHub Releases
     Update {
         /// Check only, don't install
@@ -602,6 +623,10 @@ pub struct ContactCreateArgs {
     pub last_name: Option<String>,
     #[arg(long)]
     pub unsubscribed: Option<bool>,
+    /// Custom contact properties as a JSON object (e.g. '{"company":"Acme","plan":"pro"}').
+    /// Property keys must be defined first via `email-cli contact-property create`.
+    #[arg(long, value_name = "JSON")]
+    pub properties: Option<String>,
 }
 
 #[derive(Args)]
@@ -615,6 +640,9 @@ pub struct ContactUpdateArgs {
     pub last_name: Option<String>,
     #[arg(long)]
     pub unsubscribed: Option<bool>,
+    /// Custom contact properties as a JSON object. Replaces existing values for the keys present.
+    #[arg(long, value_name = "JSON")]
+    pub properties: Option<String>,
 }
 
 #[derive(Args)]
@@ -709,4 +737,170 @@ pub struct EventsListArgs {
     pub message: Option<i64>,
     #[arg(long, default_value = "50")]
     pub limit: usize,
+}
+
+// ── Email commands (Resend GET /emails wrapper) ────────────────────────────
+
+#[derive(Subcommand)]
+pub enum EmailCommand {
+    /// List sent emails. Each row includes `last_event` for poll-based status checks.
+    #[command(visible_alias = "ls")]
+    List(EmailListArgs),
+}
+
+#[derive(Args)]
+pub struct EmailListArgs {
+    /// Number of emails to return (1-100). Defaults to 20.
+    #[arg(long, default_value = "20")]
+    pub limit: usize,
+    /// Cursor: return emails created after this email id.
+    #[arg(long)]
+    pub after: Option<String>,
+}
+
+// ── Broadcast commands ─────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum BroadcastCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(BroadcastGetArgs),
+    #[command(visible_alias = "new")]
+    Create(BroadcastCreateArgs),
+    Send(BroadcastSendArgs),
+    #[command(visible_alias = "rm")]
+    Delete(BroadcastDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct BroadcastGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct BroadcastCreateArgs {
+    /// Audience (segment) ID to send to.
+    #[arg(long)]
+    pub audience_id: String,
+    /// Sender address (e.g. "Name <sender@example.com>").
+    #[arg(long)]
+    pub from: String,
+    #[arg(long)]
+    pub subject: String,
+    /// HTML body. Use `{{{RESEND_UNSUBSCRIBE_URL}}}` for the auto-injected unsubscribe link.
+    #[arg(long)]
+    pub html: Option<String>,
+    /// Plain text body.
+    #[arg(long)]
+    pub text: Option<String>,
+    /// Internal name for the broadcast (not shown to recipients).
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Reply-to address(es), comma-separated.
+    #[arg(long)]
+    pub reply_to: Option<String>,
+    /// Preview text shown next to the subject in many clients.
+    #[arg(long)]
+    pub preview_text: Option<String>,
+}
+
+#[derive(Args)]
+pub struct BroadcastSendArgs {
+    pub id: String,
+    /// Optional ISO-8601 / RFC-3339 timestamp to schedule the send.
+    #[arg(long)]
+    pub scheduled_at: Option<String>,
+}
+
+#[derive(Args)]
+pub struct BroadcastDeleteArgs {
+    pub id: String,
+}
+
+// ── Contact-property schema commands ───────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum ContactPropertyCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(ContactPropertyGetArgs),
+    #[command(visible_alias = "new")]
+    Create(ContactPropertyCreateArgs),
+    #[command(visible_alias = "rm")]
+    Delete(ContactPropertyDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct ContactPropertyGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct ContactPropertyCreateArgs {
+    /// Property key. Alphanumeric and underscores only, max 50 chars.
+    #[arg(long)]
+    pub key: String,
+    /// Property type: "string" or "number".
+    #[arg(long, default_value = "string")]
+    pub property_type: String,
+    /// Optional fallback value when the property is not set on a contact (must match type).
+    #[arg(long)]
+    pub fallback: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ContactPropertyDeleteArgs {
+    pub id: String,
+}
+
+// ── Topic commands ─────────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum TopicCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(TopicGetArgs),
+    #[command(visible_alias = "new")]
+    Create(TopicCreateArgs),
+    #[command(visible_alias = "rm")]
+    Delete(TopicDeleteArgs),
+    /// Subscribe / unsubscribe a contact to a topic
+    ContactSet(TopicContactSetArgs),
+}
+
+#[derive(Args)]
+pub struct TopicGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct TopicCreateArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// Default subscription state for new contacts: "opt_in" or "opt_out".
+    #[arg(long)]
+    pub default_subscription: Option<String>,
+}
+
+#[derive(Args)]
+pub struct TopicDeleteArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct TopicContactSetArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
+    /// Topic id
+    #[arg(long)]
+    pub topic: String,
+    /// Subscription state: "opt_in" or "opt_out".
+    #[arg(long)]
+    pub subscription: String,
 }

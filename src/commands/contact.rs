@@ -1,9 +1,22 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+use std::collections::HashMap;
 
 use crate::app::App;
 use crate::cli::*;
 use crate::models::*;
 use crate::output::print_success_or;
+
+fn parse_properties_arg(raw: Option<String>) -> Result<Option<HashMap<String, serde_json::Value>>> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&raw)
+        .with_context(|| "--properties must be a JSON object, e.g. '{\"company\":\"Acme\"}'")?;
+    let serde_json::Value::Object(map) = parsed else {
+        anyhow::bail!("--properties must be a JSON object, got {}", parsed);
+    };
+    Ok(Some(map.into_iter().collect()))
+}
 
 impl App {
     pub fn contact_list(&self, args: ContactListArgs) -> Result<()> {
@@ -32,17 +45,27 @@ impl App {
             if let Some(f) = &c.first_name { println!("first_name: {}", f); }
             if let Some(l) = &c.last_name { println!("last_name: {}", l); }
             if let Some(u) = c.unsubscribed { println!("unsubscribed: {}", u); }
+            if let Some(props) = &c.properties {
+                if !props.is_empty() {
+                    println!("properties:");
+                    for (k, v) in props {
+                        println!("  {} = {}", k, v);
+                    }
+                }
+            }
         });
         Ok(())
     }
 
     pub fn contact_create(&self, args: ContactCreateArgs) -> Result<()> {
+        let properties = parse_properties_arg(args.properties)?;
         let client = self.default_client()?;
         let response = client.create_contact(&args.audience, &CreateContactRequest {
             email: args.email,
             first_name: args.first_name,
             last_name: args.last_name,
             unsubscribed: args.unsubscribed,
+            properties,
         })?;
         print_success_or(self.format, &response, |r| {
             println!("created contact {}", r.id);
@@ -51,11 +74,13 @@ impl App {
     }
 
     pub fn contact_update(&self, args: ContactUpdateArgs) -> Result<()> {
+        let properties = parse_properties_arg(args.properties)?;
         let client = self.default_client()?;
         let contact = client.update_contact(&args.audience, &args.id, &UpdateContactRequest {
             first_name: args.first_name,
             last_name: args.last_name,
             unsubscribed: args.unsubscribed,
+            properties,
         })?;
         print_success_or(self.format, &contact, |c| {
             println!("updated contact {} {}", c.id, c.email);
