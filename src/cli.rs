@@ -1,6 +1,17 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Validate that a limit value is within Resend's documented range (1-100).
+fn parse_resend_limit(raw: &str) -> Result<usize, String> {
+    let value: usize = raw
+        .parse()
+        .map_err(|err: std::num::ParseIntError| err.to_string())?;
+    if !(1..=100).contains(&value) {
+        return Err(format!("must be a number between 1 and 100, got {}", value));
+    }
+    Ok(value)
+}
+
 #[derive(Parser)]
 #[command(
     name = "email-cli",
@@ -53,12 +64,7 @@ pub enum Command {
         #[command(subcommand)]
         command: DomainCommand,
     },
-    /// Manage audiences
-    Audience {
-        #[command(subcommand)]
-        command: AudienceCommand,
-    },
-    /// Manage contacts within an audience
+    /// Manage Resend contacts (use `segment` to group them, `topic` for preferences)
     Contact {
         #[command(subcommand)]
         command: ContactCommand,
@@ -87,6 +93,32 @@ pub enum Command {
     Events {
         #[command(subcommand)]
         command: EventsCommand,
+    },
+    /// List sent emails (Resend GET /emails)
+    Email {
+        #[command(subcommand)]
+        command: EmailCommand,
+    },
+    /// Manage Resend broadcasts (campaign sends with native unsubscribe wiring)
+    Broadcast {
+        #[command(subcommand)]
+        command: BroadcastCommand,
+    },
+    /// Manage Resend contact-property schema (define custom fields before assigning values)
+    #[command(name = "contact-property")]
+    ContactProperty {
+        #[command(subcommand)]
+        command: ContactPropertyCommand,
+    },
+    /// Manage Resend topics (granular subscription preferences for broadcasts)
+    Topic {
+        #[command(subcommand)]
+        command: TopicCommand,
+    },
+    /// Manage Resend segments (replaces the deprecated "audience" noun, Nov 2025)
+    Segment {
+        #[command(subcommand)]
+        command: SegmentCommand,
     },
     /// Self-update from GitHub Releases
     Update {
@@ -532,36 +564,6 @@ pub struct DomainUpdateArgs {
     pub click_tracking: Option<bool>,
 }
 
-// ── Audience commands ──────────────────────────────────────────────────────
-
-#[derive(Subcommand)]
-pub enum AudienceCommand {
-    #[command(visible_alias = "ls")]
-    List,
-    #[command(visible_alias = "show")]
-    Get(AudienceGetArgs),
-    #[command(visible_alias = "new")]
-    Create(AudienceCreateArgs),
-    #[command(visible_alias = "rm")]
-    Delete(AudienceDeleteArgs),
-}
-
-#[derive(Args)]
-pub struct AudienceGetArgs {
-    pub id: String,
-}
-
-#[derive(Args)]
-pub struct AudienceCreateArgs {
-    #[arg(long)]
-    pub name: String,
-}
-
-#[derive(Args)]
-pub struct AudienceDeleteArgs {
-    pub id: String,
-}
-
 // ── Contact commands ───────────────────────────────────────────────────────
 
 #[derive(Subcommand)]
@@ -579,21 +581,22 @@ pub enum ContactCommand {
 
 #[derive(Args)]
 pub struct ContactListArgs {
+    /// Number of contacts to return (1-100). Defaults to 50.
+    #[arg(long, default_value = "50", value_parser = parse_resend_limit)]
+    pub limit: usize,
+    /// Cursor: return contacts after this contact id.
     #[arg(long)]
-    pub audience: String,
+    pub after: Option<String>,
 }
 
 #[derive(Args)]
 pub struct ContactGetArgs {
-    #[arg(long)]
-    pub audience: String,
-    pub id: String,
+    /// Contact id or email address.
+    pub id_or_email: String,
 }
 
 #[derive(Args)]
 pub struct ContactCreateArgs {
-    #[arg(long)]
-    pub audience: String,
     #[arg(long)]
     pub email: String,
     #[arg(long)]
@@ -602,26 +605,39 @@ pub struct ContactCreateArgs {
     pub last_name: Option<String>,
     #[arg(long)]
     pub unsubscribed: Option<bool>,
+    /// Custom contact properties as a JSON object (e.g. '{"company":"Acme","plan":"pro"}').
+    /// Property keys must be defined first via `email-cli contact-property create`.
+    #[arg(long, value_name = "JSON")]
+    pub properties: Option<String>,
+    /// Comma-separated segment ids to add this contact to at create time
+    /// (e.g. --segments seg_abc123,seg_def456).
+    #[arg(long, value_name = "ID,ID,...")]
+    pub segments: Option<String>,
+    /// Comma-separated topic subscriptions to set at create time, each formatted as
+    /// `topic_id:opt_in` or `topic_id:opt_out` (e.g. --topics top_xxx:opt_in,top_yyy:opt_out).
+    #[arg(long, value_name = "TOPIC:STATE,...")]
+    pub topics: Option<String>,
 }
 
 #[derive(Args)]
 pub struct ContactUpdateArgs {
-    #[arg(long)]
-    pub audience: String,
-    pub id: String,
+    /// Contact id or email address.
+    pub id_or_email: String,
     #[arg(long)]
     pub first_name: Option<String>,
     #[arg(long)]
     pub last_name: Option<String>,
     #[arg(long)]
     pub unsubscribed: Option<bool>,
+    /// Custom contact properties as a JSON object. Replaces existing values for the keys present.
+    #[arg(long, value_name = "JSON")]
+    pub properties: Option<String>,
 }
 
 #[derive(Args)]
 pub struct ContactDeleteArgs {
-    #[arg(long)]
-    pub audience: String,
-    pub id: String,
+    /// Contact id or email address.
+    pub id_or_email: String,
 }
 
 // ── Batch commands ─────────────────────────────────────────────────────────
@@ -709,4 +725,303 @@ pub struct EventsListArgs {
     pub message: Option<i64>,
     #[arg(long, default_value = "50")]
     pub limit: usize,
+}
+
+// ── Email commands (Resend GET /emails wrapper) ────────────────────────────
+
+#[derive(Subcommand)]
+pub enum EmailCommand {
+    /// List sent emails. Each row includes `last_event` for poll-based status checks.
+    #[command(visible_alias = "ls")]
+    List(EmailListArgs),
+}
+
+#[derive(Args)]
+pub struct EmailListArgs {
+    /// Number of emails to return (1-100). Defaults to 20.
+    #[arg(long, default_value = "20", value_parser = parse_resend_limit)]
+    pub limit: usize,
+    /// Cursor: return emails created after this email id.
+    #[arg(long)]
+    pub after: Option<String>,
+}
+
+// ── Broadcast commands ─────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum BroadcastCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(BroadcastGetArgs),
+    #[command(visible_alias = "new")]
+    Create(BroadcastCreateArgs),
+    Update(BroadcastUpdateArgs),
+    Send(BroadcastSendArgs),
+    #[command(visible_alias = "rm")]
+    Delete(BroadcastDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct BroadcastUpdateArgs {
+    pub id: String,
+    /// Change the target segment.
+    #[arg(long)]
+    pub segment_id: Option<String>,
+    #[arg(long)]
+    pub from: Option<String>,
+    #[arg(long)]
+    pub subject: Option<String>,
+    #[arg(long)]
+    pub html: Option<String>,
+    #[arg(long)]
+    pub text: Option<String>,
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Reply-to address(es), comma-separated.
+    #[arg(long)]
+    pub reply_to: Option<String>,
+    /// Topic ID for per-recipient unsubscribe wiring.
+    #[arg(long)]
+    pub topic_id: Option<String>,
+}
+
+#[derive(Args)]
+pub struct BroadcastGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct BroadcastCreateArgs {
+    /// Segment ID to send to. Accepts a segment id or (legacy) audience id.
+    #[arg(long, visible_alias = "audience-id")]
+    pub segment_id: String,
+    /// Sender address (e.g. "Name <sender@example.com>").
+    #[arg(long)]
+    pub from: String,
+    #[arg(long)]
+    pub subject: String,
+    /// HTML body. Use `{{{RESEND_UNSUBSCRIBE_URL}}}` for the auto-injected unsubscribe link.
+    #[arg(long)]
+    pub html: Option<String>,
+    /// Plain text body.
+    #[arg(long)]
+    pub text: Option<String>,
+    /// Internal name for the broadcast (not shown to recipients).
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Reply-to address(es), comma-separated.
+    #[arg(long)]
+    pub reply_to: Option<String>,
+    /// Topic ID to scope this broadcast to (drives per-recipient unsubscribe URL).
+    #[arg(long)]
+    pub topic_id: Option<String>,
+    /// Schedule send (ISO-8601 / RFC-3339 timestamp, or natural language per Resend).
+    #[arg(long)]
+    pub scheduled_at: Option<String>,
+    /// Send the broadcast immediately after creation (single API call).
+    #[arg(long)]
+    pub send: bool,
+}
+
+#[derive(Args)]
+pub struct BroadcastSendArgs {
+    pub id: String,
+    /// Optional ISO-8601 / RFC-3339 timestamp to schedule the send.
+    #[arg(long)]
+    pub scheduled_at: Option<String>,
+}
+
+#[derive(Args)]
+pub struct BroadcastDeleteArgs {
+    pub id: String,
+}
+
+// ── Contact-property schema commands ───────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum ContactPropertyCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(ContactPropertyGetArgs),
+    #[command(visible_alias = "new")]
+    Create(ContactPropertyCreateArgs),
+    Update(ContactPropertyUpdateArgs),
+    #[command(visible_alias = "rm")]
+    Delete(ContactPropertyDeleteArgs),
+}
+
+#[derive(Args)]
+pub struct ContactPropertyUpdateArgs {
+    pub id: String,
+    /// New fallback value. Pass numbers as their text representation; we'll send them as
+    /// numbers when `--as-number` is set, otherwise as strings.
+    #[arg(long)]
+    pub fallback: Option<String>,
+    /// Treat `--fallback` as a number rather than a string.
+    #[arg(long)]
+    pub as_number: bool,
+}
+
+#[derive(Args)]
+pub struct ContactPropertyGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct ContactPropertyCreateArgs {
+    /// Property key. Alphanumeric and underscores only, max 50 chars.
+    #[arg(long)]
+    pub key: String,
+    /// Property type: "string" or "number".
+    #[arg(long, default_value = "string")]
+    pub property_type: String,
+    /// Optional fallback value when the property is not set on a contact (must match type).
+    #[arg(long)]
+    pub fallback: Option<String>,
+}
+
+#[derive(Args)]
+pub struct ContactPropertyDeleteArgs {
+    pub id: String,
+}
+
+// ── Topic commands ─────────────────────────────────────────────────────────
+
+#[derive(Subcommand)]
+pub enum TopicCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(TopicGetArgs),
+    #[command(visible_alias = "new")]
+    Create(TopicCreateArgs),
+    Update(TopicUpdateArgs),
+    #[command(visible_alias = "rm")]
+    Delete(TopicDeleteArgs),
+    /// Subscribe / unsubscribe a contact to a topic
+    ContactSet(TopicContactSetArgs),
+    /// List a contact's topic subscriptions
+    ContactList(TopicContactListArgs),
+}
+
+#[derive(Args)]
+pub struct TopicUpdateArgs {
+    pub id: String,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// Default subscription state for new contacts: "opt_in" or "opt_out".
+    #[arg(long)]
+    pub default_subscription: Option<String>,
+    /// "public" or "private" — controls visibility on the hosted preference page.
+    #[arg(long)]
+    pub visibility: Option<String>,
+}
+
+#[derive(Args)]
+pub struct TopicContactListArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
+}
+
+#[derive(Args)]
+pub struct TopicGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct TopicCreateArgs {
+    #[arg(long)]
+    pub name: String,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// Default subscription state for new contacts: "opt_in" or "opt_out".
+    #[arg(long)]
+    pub default_subscription: Option<String>,
+    /// "public" or "private" — controls visibility on the hosted preference page.
+    #[arg(long)]
+    pub visibility: Option<String>,
+}
+
+#[derive(Args)]
+pub struct TopicDeleteArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct TopicContactSetArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
+    /// Topic id
+    #[arg(long)]
+    pub topic: String,
+    /// Subscription state: "opt_in" or "opt_out".
+    #[arg(long)]
+    pub subscription: String,
+}
+
+// ── Segment commands (Audiences renamed to Segments in November 2025) ─────
+
+#[derive(Subcommand)]
+pub enum SegmentCommand {
+    #[command(visible_alias = "ls")]
+    List,
+    #[command(visible_alias = "show")]
+    Get(SegmentGetArgs),
+    #[command(visible_alias = "new")]
+    Create(SegmentCreateArgs),
+    #[command(visible_alias = "rm")]
+    Delete(SegmentDeleteArgs),
+    /// Add a contact to a segment
+    ContactAdd(SegmentContactArgs),
+    /// Remove a contact from a segment
+    ContactRemove(SegmentContactArgs),
+    /// List the segments a contact belongs to
+    ContactList(SegmentContactListArgs),
+    /// List the contacts in a segment
+    Contacts(SegmentContactsArgs),
+}
+
+#[derive(Args)]
+pub struct SegmentContactsArgs {
+    /// Segment id
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct SegmentGetArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct SegmentCreateArgs {
+    #[arg(long)]
+    pub name: String,
+}
+
+#[derive(Args)]
+pub struct SegmentDeleteArgs {
+    pub id: String,
+}
+
+#[derive(Args)]
+pub struct SegmentContactArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
+    /// Segment id
+    #[arg(long)]
+    pub segment: String,
+}
+
+#[derive(Args)]
+pub struct SegmentContactListArgs {
+    /// Contact id or email
+    #[arg(long)]
+    pub contact: String,
 }

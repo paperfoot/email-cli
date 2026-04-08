@@ -19,9 +19,9 @@
 
 ---
 
-A single binary that gives your AI agent a real email address. Send, receive, reply, draft, sync, and manage contacts through Resend -- all from the command line. No IMAP. No browser inbox. No MCP server. Just a local SQLite mailbox and 50+ commands.
+A single binary that gives your AI agent a real email address. Send, receive, reply, draft, sync, and manage contacts, broadcasts, segments, and topics through Resend -- all from the command line. No IMAP. No browser inbox. No MCP server. Just a local SQLite mailbox and 70+ commands.
 
-[Why This Exists](#why-this-exists) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Configuration](#configuration) | [Contributing](#contributing)
+[Why This Exists](#why-this-exists) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Mailing-list Workflows](#mailing-list-workflows) | [Configuration](#configuration) | [Contributing](#contributing)
 
 </div>
 
@@ -182,17 +182,87 @@ Resend handles delivery. Email CLI handles the local operating model that agents
 | `domain verify <id>` | Trigger domain verification |
 | `domain delete <id>` | Delete a domain |
 | `domain update <id>` | Update tracking settings |
-| `audience list` | List audiences |
-| `audience create --name <n>` | Create an audience |
-| `audience delete <id>` | Delete an audience |
-| `contact list --audience <id>` | List contacts in an audience |
-| `contact create` | Create a contact |
-| `contact update` | Update a contact |
-| `contact delete` | Delete a contact |
 | `batch send --file <path>` | Send batch emails from a JSON file |
+| `email list` | List sent emails via Resend GET /emails (each row includes `last_event` for polling) |
 | `api-key list` | List API keys |
 | `api-key create --name <n>` | Create an API key |
 | `api-key delete <id>` | Delete an API key |
+
+### The Audience Section
+
+In the Resend dashboard, "Audience" is the section name in the left sidebar. It groups four primitives — **Contacts**, **Properties**, **Segments**, and **Topics** — each with its own CLI command in email-cli:
+
+| Resend dashboard tab | email-cli command | Purpose |
+|---|---|---|
+| Contacts | `contact` | Individual email addresses |
+| Properties | `contact-property` | Typed custom-field schemas (e.g. `company`, `plan`) |
+| Segments | `segment` | Groupings of contacts (a contact can be in multiple segments) |
+| Topics | `topic` | User-facing subscription preferences for broadcasts |
+
+> The pre-November-2025 "Audiences as a grouping primitive" model has been replaced. Contacts are now flat — each contact can belong to zero, one, or multiple segments. There is no `audience` noun in this CLI; use `segment` instead.
+
+### Contacts
+
+| Command | What it does |
+|---|---|
+| `contact list` | List contacts (`--limit` 1-100, `--after <id>` for cursor pagination) |
+| `contact get <id_or_email>` | Get a contact by id or email (surfaces custom properties) |
+| `contact create --email <addr>` | Create a contact (`--first-name`, `--last-name`, `--unsubscribed`, `--properties '{"k":"v"}'`, `--segments seg1,seg2`, `--topics top_xxx:opt_in,top_yyy:opt_out`) |
+| `contact update <id_or_email>` | Update contact fields (`--first-name`, `--last-name`, `--unsubscribed`, `--properties`) |
+| `contact delete <id_or_email>` | Delete a contact |
+
+### Segments
+
+| Command | What it does |
+|---|---|
+| `segment list` | List segments |
+| `segment get <id>` | Get segment details |
+| `segment create --name <n>` | Create a segment |
+| `segment delete <id>` | Delete a segment |
+| `segment contacts <id>` | List the contacts in a segment |
+| `segment contact-add --contact <id_or_email> --segment <id>` | Add a contact to a segment |
+| `segment contact-remove --contact <id_or_email> --segment <id>` | Remove a contact from a segment |
+| `segment contact-list --contact <id_or_email>` | List the segments a contact belongs to |
+
+### Custom Contact Properties
+
+Resend's contact properties are typed key/value fields you attach to contacts. Use them for merge tags in broadcasts and templates. **You must define a property's schema before assigning values to a contact.**
+
+| Command | What it does |
+|---|---|
+| `contact-property list` | List defined contact-property schemas |
+| `contact-property get <id>` | Get a contact-property schema |
+| `contact-property create --key company --property-type string` | Define a property (`--fallback` for default value, `--property-type` `string`/`number`) |
+| `contact-property update <id> --fallback "N/A"` | Update a property's fallback value (add `--as-number` if the property is numeric) |
+| `contact-property delete <id>` | Delete a contact-property schema |
+| `contact create --properties '{"company":"Acme","plan":"pro"}'` | Assign property values when creating a contact |
+
+### Topics (Granular Subscription Preferences)
+
+Topics power Resend's granular unsubscribe flow on broadcasts. Each contact can be opted in or out of any topic, and broadcasts wired to a topic auto-substitute the right unsubscribe URL.
+
+| Command | What it does |
+|---|---|
+| `topic list` | List topics |
+| `topic get <id>` | Get topic details |
+| `topic create --name "Weekly Digest"` | Create a topic (`--description`, `--default-subscription opt_in`/`opt_out`, `--visibility public`/`private`) |
+| `topic update <id>` | Update topic fields (`--name`, `--description`, `--default-subscription`, `--visibility`) |
+| `topic delete <id>` | Delete a topic |
+| `topic contact-set --contact <id> --topic <id> --subscription opt_in` | Subscribe or unsubscribe a contact |
+| `topic contact-list --contact <id>` | List a contact's topic subscriptions |
+
+### Broadcasts
+
+Broadcasts are Resend's native campaign sending. Use these instead of `batch send` when you want auto unsubscribe wiring (`{{{RESEND_UNSUBSCRIBE_URL}}}`), server-side scheduling, and Resend's internal queue throttling.
+
+| Command | What it does |
+|---|---|
+| `broadcast list` | List broadcasts |
+| `broadcast get <id>` | Get broadcast details |
+| `broadcast create --segment-id <id> --from <addr> --subject <subj> --html <body>` | Create a broadcast (`--text`, `--name`, `--reply-to`, `--topic-id`, `--scheduled-at`, `--send` for inline send). `--audience-id` is accepted as a legacy alias. |
+| `broadcast update <id>` | Update a draft broadcast (`--segment-id`, `--from`, `--subject`, `--html`, `--text`, `--name`, `--reply-to`, `--topic-id`) |
+| `broadcast send <id>` | Send (or schedule via `--scheduled-at`) |
+| `broadcast delete <id>` | Delete (cancels scheduled broadcasts) |
 
 ### Agent Tooling
 
@@ -202,6 +272,63 @@ Resend handles delivery. Email CLI handles the local operating model that agents
 | `skill install` | Install skill file for Claude/Codex/Gemini |
 | `skill status` | Check skill installation status |
 | `completions <shell>` | Generate shell completions (bash/zsh/fish) |
+
+## Mailing-list Workflows
+
+Email CLI is the Resend client for [`mailing-list-cli`](https://github.com/199-biotechnologies/mailing-list-cli) and any other tool that needs to wrap a complete mailing-list workflow on top of Resend. Three primitives matter:
+
+1. **Segments** group contacts. (Audiences, in pre-November-2025 terms.)
+2. **Contact properties** are typed custom fields on each contact. Define the schema, then assign values.
+3. **Topics** drive granular per-contact subscription preferences for broadcasts.
+
+### End-to-end example
+
+```bash
+# 1. Define a custom field schema (do this once per property)
+email-cli contact-property create --key company --property-type string
+email-cli contact-property create --key plan --property-type string --fallback "free"
+
+# 2. Create a topic for granular unsubscribes
+email-cli topic create --name "Weekly Digest" --default-subscription opt_in
+# → returns topic id, e.g. top_xyz
+
+# 3. Create a segment to group contacts
+email-cli segment create --name "Beta users"
+# → returns segment id, e.g. seg_abc123
+
+# 4. Add a contact with custom properties and add them to the segment in one shot
+email-cli contact create \
+  --email alice@example.com \
+  --first-name Alice \
+  --properties '{"company":"Acme","plan":"pro"}' \
+  --segments seg_abc123
+
+# 5. Subscribe the contact to the topic
+email-cli topic contact-set \
+  --contact alice@example.com \
+  --topic top_xyz \
+  --subscription opt_in
+
+# 6. Create and send a broadcast (auto unsubscribe URL via {{{RESEND_UNSUBSCRIBE_URL}}})
+email-cli broadcast create \
+  --segment-id seg_abc123 \
+  --topic-id top_xyz \
+  --from "Acme <hello@yourdomain.com>" \
+  --subject "This week at Acme" \
+  --html '<p>Hi {{first_name}},</p><p>Latest digest...</p><p><a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></p>'
+# → returns broadcast id, e.g. brd_456
+
+email-cli broadcast send brd_456
+
+# 7. Poll delivery status (replaces a webhook listener for the basic case)
+email-cli email list --limit 100
+```
+
+> Note: Wiring `--topic-id` on the broadcast tells Resend which topic the unsubscribe link should opt the recipient out of. Without `--topic-id`, the unsubscribe URL still works but uses an account-wide unsubscribe.
+
+### Why polling beats running a second webhook listener
+
+`email list` returns each email's `last_event` (`sent`, `delivered`, `bounced`, `complained`, `opened`, `clicked`). For the suppression-driving path -- delivered/bounced/complained -- polling is enough and avoids the operational cost of a second webhook URL pointed at your tool. For full engagement history (open → click → unsubscribe), keep using `webhook listen` -- it stores every event into the local SQLite events table, which `events list` queries.
 
 ## Email Threading
 

@@ -7,7 +7,7 @@ use crate::output::print_success_or;
 
 impl App {
     /// Get the API client for the first (or only) profile.
-    /// Domain/audience/contact/api-key commands are profile-level.
+    /// Domain/contact/segment/topic/broadcast/api-key commands are profile-level.
     pub fn default_client(&self) -> Result<crate::resend::ResendClient> {
         let name: String = self.conn.query_row(
             "SELECT name FROM profiles ORDER BY name LIMIT 1",

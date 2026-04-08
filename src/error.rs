@@ -69,6 +69,28 @@ impl From<anyhow::Error> for CliError {
             return Self::InvalidInput(err.to_string());
         }
 
+        // CLI-side validation failures from arg parsing helpers (e.g. parse_properties_arg,
+        // parse_topics_arg, topic create --default-subscription) all use phrases like
+        // "must be ...", "must contain", "invalid value", "invalid json". Map them all to
+        // InvalidInput so agents see exit code 3.
+        if msg.contains("must be ")
+            || msg.contains("must contain")
+            || msg.contains("invalid json")
+            || msg.contains("invalid value")
+        {
+            return Self::InvalidInput(err.to_string());
+        }
+
+        // Rate-limit exhaustion paths in resend.rs use phrases like
+        // "kept rate limiting" and "429". Map them to RateLimited so callers get exit 4.
+        if msg.contains("kept rate limiting")
+            || msg.contains("429")
+            || msg.contains("rate limit")
+            || msg.contains("too many requests")
+        {
+            return Self::RateLimited(err.to_string());
+        }
+
         // Connection / network errors are transient — retryable.
         if msg.contains("connection")
             || msg.contains("timed out")

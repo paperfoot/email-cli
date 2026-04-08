@@ -58,7 +58,7 @@ impl ResendClient {
     }
 
     pub fn get_sent_email(&self, id: &str) -> Result<SentEmail> {
-        self.get_json(&format!("/emails/{}", id), &[])
+        self.get_json(&format!("/emails/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn list_received_emails_page(
@@ -74,18 +74,18 @@ impl ResendClient {
     }
 
     pub fn get_received_email(&self, id: &str) -> Result<ReceivedEmail> {
-        self.get_json(&format!("/emails/receiving/{}", id), &[])
+        self.get_json(&format!("/emails/receiving/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn list_received_attachments(&self, email_id: &str) -> Result<Vec<ReceivedAttachment>> {
         let payload: ListResponse<ReceivedAttachment> =
-            self.get_json(&format!("/emails/receiving/{}/attachments", email_id), &[])?;
+            self.get_json(&format!("/emails/receiving/{}/attachments", urlencoding::encode(email_id)), &[])?;
         Ok(payload.data)
     }
 
     // Domains
     pub fn get_domain(&self, id: &str) -> Result<DomainDetail> {
-        self.get_json(&format!("/domains/{}", id), &[])
+        self.get_json(&format!("/domains/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn create_domain(&self, payload: &CreateDomainRequest) -> Result<CreateDomainResponse> {
@@ -93,53 +93,59 @@ impl ResendClient {
     }
 
     pub fn verify_domain(&self, id: &str) -> Result<DomainDetail> {
-        self.post_json(&format!("/domains/{}/verify", id), &serde_json::json!({}), None)
+        self.post_json(&format!("/domains/{}/verify", urlencoding::encode(id)), &serde_json::json!({}), None)
     }
 
     pub fn delete_domain(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/domains/{}", id))
+        self.delete_request(&format!("/domains/{}", urlencoding::encode(id)))
     }
 
     pub fn update_domain(&self, id: &str, payload: &UpdateDomainRequest) -> Result<DomainDetail> {
-        self.patch_json(&format!("/domains/{}", id), payload)
+        self.patch_json(&format!("/domains/{}", urlencoding::encode(id)), payload)
     }
 
-    // Audiences
-    pub fn list_audiences(&self) -> Result<AudienceList> {
-        self.get_json("/audiences", &[])
+    // Contacts (flat /contacts endpoints — Resend renamed Audiences to Segments
+    // in November 2025; new code uses these flat paths and treats segment grouping
+    // as a separate concern via the segments service.)
+    pub fn list_contacts_page(
+        &self,
+        limit: usize,
+        after: Option<&str>,
+    ) -> Result<ListResponse<Contact>> {
+        let mut query = vec![("limit", limit.to_string())];
+        if let Some(after) = after {
+            query.push(("after", after.to_string()));
+        }
+        self.get_json("/contacts", &query)
     }
 
-    pub fn get_audience(&self, id: &str) -> Result<Audience> {
-        self.get_json(&format!("/audiences/{}", id), &[])
+    pub fn get_contact(&self, contact_id_or_email: &str) -> Result<Contact> {
+        self.get_json(
+            &format!("/contacts/{}", urlencoding::encode(contact_id_or_email)),
+            &[],
+        )
     }
 
-    pub fn create_audience(&self, payload: &CreateAudienceRequest) -> Result<CreateAudienceResponse> {
-        self.post_json("/audiences", payload, None)
+    pub fn create_contact(&self, payload: &CreateContactRequest) -> Result<CreateContactResponse> {
+        self.post_json("/contacts", payload, None)
     }
 
-    pub fn delete_audience(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/audiences/{}", id))
+    pub fn update_contact(
+        &self,
+        contact_id_or_email: &str,
+        payload: &UpdateContactRequest,
+    ) -> Result<IdResponse> {
+        self.patch_json(
+            &format!("/contacts/{}", urlencoding::encode(contact_id_or_email)),
+            payload,
+        )
     }
 
-    // Contacts
-    pub fn list_contacts(&self, audience_id: &str) -> Result<ContactList> {
-        self.get_json(&format!("/audiences/{}/contacts", audience_id), &[])
-    }
-
-    pub fn get_contact(&self, audience_id: &str, contact_id: &str) -> Result<Contact> {
-        self.get_json(&format!("/audiences/{}/contacts/{}", audience_id, contact_id), &[])
-    }
-
-    pub fn create_contact(&self, audience_id: &str, payload: &CreateContactRequest) -> Result<CreateContactResponse> {
-        self.post_json(&format!("/audiences/{}/contacts", audience_id), payload, None)
-    }
-
-    pub fn update_contact(&self, audience_id: &str, contact_id: &str, payload: &UpdateContactRequest) -> Result<Contact> {
-        self.patch_json(&format!("/audiences/{}/contacts/{}", audience_id, contact_id), payload)
-    }
-
-    pub fn delete_contact(&self, audience_id: &str, contact_id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/audiences/{}/contacts/{}", audience_id, contact_id))
+    pub fn delete_contact(&self, contact_id_or_email: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!(
+            "/contacts/{}",
+            urlencoding::encode(contact_id_or_email)
+        ))
     }
 
     // Batch
@@ -157,7 +163,172 @@ impl ResendClient {
     }
 
     pub fn delete_api_key(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/api-keys/{}", id))
+        self.delete_request(&format!("/api-keys/{}", urlencoding::encode(id)))
+    }
+
+    // Segments (Audiences renamed to Segments in November 2025; /audiences endpoints
+    // are still backward-compatible.)
+    pub fn list_segments(&self) -> Result<SegmentList> {
+        self.get_json("/segments", &[])
+    }
+
+    pub fn get_segment(&self, id: &str) -> Result<Segment> {
+        self.get_json(&format!("/segments/{}", urlencoding::encode(id)), &[])
+    }
+
+    pub fn create_segment(&self, payload: &CreateSegmentRequest) -> Result<CreateSegmentResponse> {
+        self.post_json("/segments", payload, None)
+    }
+
+    pub fn delete_segment(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/segments/{}", urlencoding::encode(id)))
+    }
+
+    pub fn add_contact_to_segment(
+        &self,
+        contact_id_or_email: &str,
+        segment_id: &str,
+    ) -> Result<ContactSegmentResponse> {
+        self.post_json(
+            &format!(
+                "/contacts/{}/segments/{}",
+                urlencoding::encode(contact_id_or_email),
+                urlencoding::encode(segment_id)
+            ),
+            &serde_json::json!({}),
+            None,
+        )
+    }
+
+    pub fn remove_contact_from_segment(
+        &self,
+        contact_id_or_email: &str,
+        segment_id: &str,
+    ) -> Result<ContactSegmentResponse> {
+        self.delete_json(&format!(
+            "/contacts/{}/segments/{}",
+            urlencoding::encode(contact_id_or_email),
+            urlencoding::encode(segment_id)
+        ))
+    }
+
+    pub fn list_contact_segments(&self, contact_id_or_email: &str) -> Result<SegmentList> {
+        self.get_json(
+            &format!(
+                "/contacts/{}/segments",
+                urlencoding::encode(contact_id_or_email)
+            ),
+            &[],
+        )
+    }
+
+    pub fn list_segment_contacts(&self, segment_id: &str) -> Result<ListResponse<Contact>> {
+        self.get_json(
+            &format!("/segments/{}/contacts", urlencoding::encode(segment_id)),
+            &[],
+        )
+    }
+
+    // Broadcasts
+    pub fn list_broadcasts(&self) -> Result<BroadcastList> {
+        self.get_json("/broadcasts", &[])
+    }
+
+    pub fn get_broadcast(&self, id: &str) -> Result<Broadcast> {
+        self.get_json(&format!("/broadcasts/{}", urlencoding::encode(id)), &[])
+    }
+
+    pub fn create_broadcast(&self, payload: &CreateBroadcastRequest) -> Result<CreateBroadcastResponse> {
+        self.post_json("/broadcasts", payload, None)
+    }
+
+    pub fn update_broadcast(
+        &self,
+        id: &str,
+        payload: &UpdateBroadcastRequest,
+    ) -> Result<IdResponse> {
+        self.patch_json(&format!("/broadcasts/{}", urlencoding::encode(id)), payload)
+    }
+
+    pub fn send_broadcast(&self, id: &str, payload: &SendBroadcastRequest) -> Result<SendBroadcastResponse> {
+        self.post_json(&format!("/broadcasts/{}/send", urlencoding::encode(id)), payload, None)
+    }
+
+    pub fn delete_broadcast(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/broadcasts/{}", urlencoding::encode(id)))
+    }
+
+    // Contact Properties (schema CRUD)
+    pub fn list_contact_properties(&self) -> Result<ContactPropertyList> {
+        self.get_json("/contact-properties", &[])
+    }
+
+    pub fn get_contact_property(&self, id: &str) -> Result<ContactProperty> {
+        self.get_json(&format!("/contact-properties/{}", urlencoding::encode(id)), &[])
+    }
+
+    pub fn create_contact_property(
+        &self,
+        payload: &CreateContactPropertyRequest,
+    ) -> Result<CreateContactPropertyResponse> {
+        self.post_json("/contact-properties", payload, None)
+    }
+
+    pub fn update_contact_property(
+        &self,
+        id: &str,
+        payload: &UpdateContactPropertyRequest,
+    ) -> Result<IdResponse> {
+        self.patch_json(&format!("/contact-properties/{}", urlencoding::encode(id)), payload)
+    }
+
+    pub fn delete_contact_property(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/contact-properties/{}", urlencoding::encode(id)))
+    }
+
+    // Topics
+    pub fn list_topics(&self) -> Result<TopicList> {
+        self.get_json("/topics", &[])
+    }
+
+    pub fn get_topic(&self, id: &str) -> Result<Topic> {
+        self.get_json(&format!("/topics/{}", urlencoding::encode(id)), &[])
+    }
+
+    pub fn create_topic(&self, payload: &CreateTopicRequest) -> Result<CreateTopicResponse> {
+        self.post_json("/topics", payload, None)
+    }
+
+    pub fn update_topic(&self, id: &str, payload: &UpdateTopicRequest) -> Result<IdResponse> {
+        self.patch_json(&format!("/topics/{}", urlencoding::encode(id)), payload)
+    }
+
+    pub fn delete_topic(&self, id: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/topics/{}", urlencoding::encode(id)))
+    }
+
+    pub fn update_contact_topics(
+        &self,
+        contact_id_or_email: &str,
+        payload: &UpdateContactTopicsRequest,
+    ) -> Result<serde_json::Value> {
+        self.patch_json(
+            &format!(
+                "/contacts/{}/topics",
+                urlencoding::encode(contact_id_or_email)
+            ),
+            payload,
+        )
+    }
+
+    pub fn list_contact_topics(&self, contact_id_or_email: &str) -> Result<ContactTopicList> {
+        self.get_json(
+            &format!(
+                "/contacts/{}/topics",
+                urlencoding::encode(contact_id_or_email)
+            ),
+            &[],
+        )
     }
 
     pub fn download_attachment(&self, url: &str) -> Result<Vec<u8>> {
@@ -234,6 +405,34 @@ impl ResendClient {
                     continue;
                 }
                 Err(err) => return Err(err).with_context(|| format!("POST {} failed", path)),
+            };
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                sleep(retry_delay(response.headers(), attempt));
+                continue;
+            }
+            if response.status().is_server_error() {
+                sleep(backoff(attempt));
+                continue;
+            }
+            return decode_json(response);
+        }
+        bail!("Resend API kept rate limiting for {}", path)
+    }
+
+    fn delete_json<T: DeserializeOwned>(&self, path: &str) -> Result<T> {
+        for attempt in 0..5 {
+            let response = match self
+                .client
+                .delete(format!("https://api.resend.com{}", path))
+                .bearer_auth(&self.api_key)
+                .send()
+            {
+                Ok(response) => response,
+                Err(err) if should_retry_error(&err) => {
+                    sleep(backoff(attempt));
+                    continue;
+                }
+                Err(err) => return Err(err).with_context(|| format!("DELETE {} failed", path)),
             };
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 sleep(retry_delay(response.headers(), attempt));

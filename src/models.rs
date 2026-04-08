@@ -257,41 +257,34 @@ pub struct UpdateDomainRequest {
     pub click_tracking: Option<bool>,
 }
 
-// ── Audience types ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Audience {
-    pub id: String,
-    pub name: String,
-    pub created_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AudienceList {
-    #[serde(default)]
-    pub data: Vec<Audience>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CreateAudienceRequest {
-    pub name: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CreateAudienceResponse {
-    pub id: String,
-    pub name: String,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteResponse {
     #[serde(default)]
     pub deleted: bool,
 }
 
+/// Minimal `{ id }` response shape used by Resend's PATCH endpoints, which only echo
+/// the resource id rather than returning the full updated resource.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct IdResponse {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct SegmentRef {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TopicRef {
+    pub id: String,
+    /// "opt_in" or "opt_out"
+    pub subscription: String,
+}
+
 // ── Contact types ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct Contact {
     pub id: String,
     pub email: String,
@@ -299,12 +292,9 @@ pub struct Contact {
     pub last_name: Option<String>,
     pub unsubscribed: Option<bool>,
     pub created_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ContactList {
-    #[serde(default)]
-    pub data: Vec<Contact>,
+    /// Custom contact properties. Round-tripped from Resend's response when present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, Value>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -316,6 +306,16 @@ pub struct CreateContactRequest {
     pub last_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsubscribed: Option<bool>,
+    /// Free-form contact properties. Resend requires the property keys to be defined first
+    /// via the contact-property schema CRUD (`email-cli contact-property create ...`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, Value>>,
+    /// Segments to add the contact to at create time. Each ref is `{id: "seg_..."}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<SegmentRef>>,
+    /// Topics to subscribe the contact to at create time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topics: Option<Vec<TopicRef>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -331,6 +331,8 @@ pub struct UpdateContactRequest {
     pub last_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsubscribed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, Value>>,
 }
 
 // ── Batch send ─────────────────────────────────────────────────────────────
@@ -425,6 +427,241 @@ pub struct CommandLogEntry {
     pub args: String,
     pub exit_code: Option<i32>,
     pub created_at: String,
+}
+
+// ── Segment types (Audiences renamed to Segments in November 2025) ────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Segment {
+    pub id: String,
+    pub name: String,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct SegmentList {
+    #[serde(default)]
+    pub data: Vec<Segment>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateSegmentRequest {
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateSegmentResponse {
+    pub id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ContactSegmentResponse {
+    pub id: String,
+    #[serde(default)]
+    pub deleted: bool,
+}
+
+// ── Broadcast types ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Broadcast {
+    pub id: String,
+    pub name: Option<String>,
+    /// Resend uses segment_id on the new API; the legacy field name was audience_id.
+    /// Some endpoints/responses may still echo audience_id, so we accept both.
+    #[serde(alias = "audience_id")]
+    pub segment_id: Option<String>,
+    pub from: Option<String>,
+    pub subject: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_string_vec")]
+    pub reply_to: Vec<String>,
+    pub topic_id: Option<String>,
+    pub html: Option<String>,
+    pub text: Option<String>,
+    pub preview_text: Option<String>,
+    pub status: Option<String>,
+    pub created_at: Option<String>,
+    pub scheduled_at: Option<String>,
+    pub sent_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct BroadcastList {
+    #[serde(default)]
+    pub data: Vec<Broadcast>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateBroadcastRequest {
+    pub segment_id: String,
+    pub from: String,
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<String>,
+    /// If true, send the broadcast immediately after creation (single API call).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateBroadcastResponse {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct UpdateBroadcastRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub html: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topic_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct SendBroadcastRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct SendBroadcastResponse {
+    pub id: String,
+}
+
+// ── Contact property schema types ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ContactProperty {
+    pub id: String,
+    pub key: String,
+    #[serde(rename = "type")]
+    pub property_type: String,
+    pub fallback_value: Option<Value>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ContactPropertyList {
+    #[serde(default)]
+    pub data: Vec<ContactProperty>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateContactPropertyRequest {
+    pub key: String,
+    #[serde(rename = "type")]
+    pub property_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_value: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateContactPropertyResponse {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct UpdateContactPropertyRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fallback_value: Option<Value>,
+}
+
+// ── Topic types ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Topic {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub default_subscription: Option<String>,
+    /// "public" or "private" — controls whether the topic is shown on the hosted preference page.
+    pub visibility: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TopicList {
+    #[serde(default)]
+    pub data: Vec<Topic>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateTopicRequest {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// "opt_in" or "opt_out"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_subscription: Option<String>,
+    /// "public" or "private"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct CreateTopicResponse {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct UpdateTopicRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_subscription: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ContactTopicSubscription {
+    pub id: String,
+    /// "opt_in" or "opt_out"
+    pub subscription: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct UpdateContactTopicsRequest {
+    pub topics: Vec<ContactTopicSubscription>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ContactTopicView {
+    pub id: String,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub subscription: Option<String>,
+    pub created_at: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ContactTopicList {
+    #[serde(default)]
+    pub data: Vec<ContactTopicView>,
 }
 
 // ── Custom deserializer ────────────────────────────────────────────────────
