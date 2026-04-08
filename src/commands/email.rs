@@ -14,7 +14,10 @@ impl App {
                 let subject = email.subject.as_deref().unwrap_or("(no subject)");
                 let to = email.to.join(", ");
                 let created = email.created_at.as_deref().unwrap_or("");
-                println!("{} {} to={} subject={} created_at={}", email.id, event, to, subject, created);
+                println!(
+                    "{} {} to={} subject={} created_at={}",
+                    email.id, event, to, subject, created
+                );
             }
             if list.data.is_empty() {
                 println!("no emails");

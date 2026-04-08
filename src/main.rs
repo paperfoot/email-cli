@@ -25,8 +25,7 @@ fn main() {
             // Help and version are not errors — exit 0.
             if matches!(
                 err.kind(),
-                clap::error::ErrorKind::DisplayHelp
-                    | clap::error::ErrorKind::DisplayVersion
+                clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion
             ) {
                 if !std::io::stdout().is_terminal() {
                     let envelope = serde_json::json!({
@@ -80,8 +79,8 @@ fn run(command: Command, db: Option<std::path::PathBuf>, format: Format) -> Resu
             let cmd_name = command_name(&command);
             let cmd_args = command_args(&command);
             app.log_command(&cmd_name, &cmd_args);
-            let result = dispatch(app, command);
-            result
+
+            dispatch(app, command)
         }
     }
 }
@@ -124,10 +123,18 @@ fn command_args(command: &Command) -> String {
     // Capture subcommand details without sensitive content
     match command {
         Command::Inbox { command } => match command {
-            InboxCommand::List(a) => format!("list --limit {} {}", a.limit, a.account.as_deref().unwrap_or("")),
+            InboxCommand::List(a) => format!(
+                "list --limit {} {}",
+                a.limit,
+                a.account.as_deref().unwrap_or("")
+            ),
             InboxCommand::Sync(a) => format!("sync {}", a.account.as_deref().unwrap_or("")),
             InboxCommand::Read(a) => format!("read {}", a.id),
-            InboxCommand::Mark(a) => format!("mark {:?} {}", a.ids, if a.unread { "--unread" } else { "--read" }),
+            InboxCommand::Mark(a) => format!(
+                "mark {:?} {}",
+                a.ids,
+                if a.unread { "--unread" } else { "--read" }
+            ),
             InboxCommand::Delete(a) => format!("delete {:?}", a.ids),
             InboxCommand::Archive(a) => format!("archive {:?}", a.ids),
             InboxCommand::Unarchive(a) => format!("unarchive {:?}", a.ids),
@@ -136,12 +143,20 @@ fn command_args(command: &Command) -> String {
             InboxCommand::Purge(a) => format!("purge --before {}", a.before),
             InboxCommand::Stats(a) => format!("stats {}", a.account.as_deref().unwrap_or("")),
         },
-        Command::Send(a) => format!("--to {:?} --subject \"{}\"", a.compose.to, a.compose.subject),
+        Command::Send(a) => format!(
+            "--to {:?} --subject \"{}\"",
+            a.compose.to, a.compose.subject
+        ),
         Command::Reply(a) => format!("{}{}", a.message_id, if a.all { " --all" } else { "" }),
         Command::Forward(a) => format!("{} --to {:?}", a.message_id, a.to),
-        Command::Sync(a) => format!("{}", a.account.as_deref().unwrap_or("all")),
+        Command::Sync(a) => a.account.as_deref().unwrap_or("all").to_string(),
         Command::Events { command } => match command {
-            EventsCommand::List(a) => format!("list{}", a.message.map(|m| format!(" --message {}", m)).unwrap_or_default()),
+            EventsCommand::List(a) => format!(
+                "list{}",
+                a.message
+                    .map(|m| format!(" --message {}", m))
+                    .unwrap_or_default()
+            ),
         },
         _ => String::new(),
     }
@@ -172,7 +187,10 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             let entries = app.get_command_log(args.limit)?;
             crate::output::print_success_or(app.format, &entries, |entries| {
                 for e in entries {
-                    let exit = e.exit_code.map(|c| format!(" (exit {})", c)).unwrap_or_default();
+                    let exit = e
+                        .exit_code
+                        .map(|c| format!(" (exit {})", c))
+                        .unwrap_or_default();
                     println!("{} | {:<12} {}{}", e.created_at, e.command, e.args, exit);
                 }
                 if entries.is_empty() {

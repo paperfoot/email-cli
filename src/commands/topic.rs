@@ -27,29 +27,34 @@ impl App {
         print_success_or(self.format, &topic, |t| {
             println!("id: {}", t.id);
             println!("name: {}", t.name);
-            if let Some(d) = &t.description { println!("description: {}", d); }
-            if let Some(d) = &t.default_subscription { println!("default_subscription: {}", d); }
-            if let Some(v) = &t.visibility { println!("visibility: {}", v); }
+            if let Some(d) = &t.description {
+                println!("description: {}", d);
+            }
+            if let Some(d) = &t.default_subscription {
+                println!("default_subscription: {}", d);
+            }
+            if let Some(v) = &t.visibility {
+                println!("visibility: {}", v);
+            }
         });
         Ok(())
     }
 
     pub fn topic_create(&self, args: TopicCreateArgs) -> Result<()> {
-        if let Some(ref sub) = args.default_subscription {
-            if sub != "opt_in" && sub != "opt_out" {
-                anyhow::bail!(
-                    "--default-subscription must be 'opt_in' or 'opt_out', got '{}'",
-                    sub
-                );
-            }
+        if let Some(ref sub) = args.default_subscription
+            && sub != "opt_in"
+            && sub != "opt_out"
+        {
+            anyhow::bail!(
+                "--default-subscription must be 'opt_in' or 'opt_out', got '{}'",
+                sub
+            );
         }
-        if let Some(ref vis) = args.visibility {
-            if vis != "public" && vis != "private" {
-                anyhow::bail!(
-                    "--visibility must be 'public' or 'private', got '{}'",
-                    vis
-                );
-            }
+        if let Some(ref vis) = args.visibility
+            && vis != "public"
+            && vis != "private"
+        {
+            anyhow::bail!("--visibility must be 'public' or 'private', got '{}'", vis);
         }
         let client = self.default_client()?;
         let response = client.create_topic(&CreateTopicRequest {
@@ -65,29 +70,31 @@ impl App {
     }
 
     pub fn topic_update(&self, args: TopicUpdateArgs) -> Result<()> {
-        if let Some(ref sub) = args.default_subscription {
-            if sub != "opt_in" && sub != "opt_out" {
-                anyhow::bail!(
-                    "--default-subscription must be 'opt_in' or 'opt_out', got '{}'",
-                    sub
-                );
-            }
+        if let Some(ref sub) = args.default_subscription
+            && sub != "opt_in"
+            && sub != "opt_out"
+        {
+            anyhow::bail!(
+                "--default-subscription must be 'opt_in' or 'opt_out', got '{}'",
+                sub
+            );
         }
-        if let Some(ref vis) = args.visibility {
-            if vis != "public" && vis != "private" {
-                anyhow::bail!(
-                    "--visibility must be 'public' or 'private', got '{}'",
-                    vis
-                );
-            }
+        if let Some(ref vis) = args.visibility
+            && vis != "public"
+            && vis != "private"
+        {
+            anyhow::bail!("--visibility must be 'public' or 'private', got '{}'", vis);
         }
         let client = self.default_client()?;
-        let response = client.update_topic(&args.id, &UpdateTopicRequest {
-            name: args.name,
-            description: args.description,
-            default_subscription: args.default_subscription,
-            visibility: args.visibility,
-        })?;
+        let response = client.update_topic(
+            &args.id,
+            &UpdateTopicRequest {
+                name: args.name,
+                description: args.description,
+                default_subscription: args.default_subscription,
+                visibility: args.visibility,
+            },
+        )?;
         print_success_or(self.format, &response, |r| {
             println!("updated topic {}", r.id);
         });
@@ -105,7 +112,10 @@ impl App {
 
     pub fn topic_contact_set(&self, args: TopicContactSetArgs) -> Result<()> {
         if args.subscription != "opt_in" && args.subscription != "opt_out" {
-            anyhow::bail!("--subscription must be 'opt_in' or 'opt_out', got '{}'", args.subscription);
+            anyhow::bail!(
+                "--subscription must be 'opt_in' or 'opt_out', got '{}'",
+                args.subscription
+            );
         }
         let client = self.default_client()?;
         let payload = UpdateContactTopicsRequest {
@@ -116,7 +126,10 @@ impl App {
         };
         let response = client.update_contact_topics(&args.contact, &payload)?;
         print_success_or(self.format, &response, |_r| {
-            println!("set contact={} topic={} subscription={}", args.contact, args.topic, args.subscription);
+            println!(
+                "set contact={} topic={} subscription={}",
+                args.contact, args.topic, args.subscription
+            );
         });
         Ok(())
     }

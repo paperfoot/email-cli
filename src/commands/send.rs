@@ -6,14 +6,11 @@ use crate::cli::{ComposeArgs, ForwardArgs, ReplyArgs, SendArgs};
 use crate::helpers::{
     append_signature_html, append_signature_text, build_send_attachments,
     ensure_reply_account_matches, format_forwarded_body, format_sender, forward_subject,
-    generate_message_id, normalize_email, normalize_emails, now_timestamp,
-    read_optional_content, reply_all_recipients, reply_headers_for_message, reply_recipients,
-    reply_subject,
+    generate_message_id, normalize_email, normalize_emails, now_timestamp, read_optional_content,
+    reply_all_recipients, reply_headers_for_message, reply_recipients, reply_subject,
 };
 use crate::http::fetch_sent_detail;
-use crate::models::{
-    MessageRecord, ReplyHeaders, ResolvedCompose, SendEmailRequest, SentEmail,
-};
+use crate::models::{MessageRecord, ReplyHeaders, ResolvedCompose, SendEmailRequest, SentEmail};
 use crate::output::print_success_or;
 
 impl App {
@@ -219,12 +216,7 @@ impl App {
                         text: request.text.clone(),
                     });
                 let reply_headers = reply_context.map(|(_, reply)| reply);
-                self.store_sent_message(
-                    &compose.account,
-                    detail,
-                    reply_headers,
-                    Some(message_id),
-                )
+                self.store_sent_message(&compose.account, detail, reply_headers, Some(message_id))
             }
             Err(err) => {
                 self.outbox_mark_failed(&idempotency_key, &err.to_string())?;

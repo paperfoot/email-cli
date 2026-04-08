@@ -61,7 +61,10 @@ pub fn extract_error_message(body: &str) -> String {
         .unwrap_or_else(|| body.to_string())
 }
 
-pub fn fetch_sent_detail(client: &crate::resend::ResendClient, id: &str) -> Option<crate::models::SentEmail> {
+pub fn fetch_sent_detail(
+    client: &crate::resend::ResendClient,
+    id: &str,
+) -> Option<crate::models::SentEmail> {
     for attempt in 0..3 {
         if let Ok(detail) = client.get_sent_email(id) {
             return Some(detail);

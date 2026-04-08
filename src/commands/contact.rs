@@ -55,7 +55,10 @@ fn parse_topics_arg(value: Option<String>) -> Result<Option<Vec<TopicRef>>> {
                 sub
             );
         }
-        refs.push(TopicRef { id, subscription: sub });
+        refs.push(TopicRef {
+            id,
+            subscription: sub,
+        });
     }
     if refs.is_empty() {
         Ok(None)
@@ -91,15 +94,21 @@ impl App {
         print_success_or(self.format, &contact, |c| {
             println!("id: {}", c.id);
             println!("email: {}", c.email);
-            if let Some(f) = &c.first_name { println!("first_name: {}", f); }
-            if let Some(l) = &c.last_name { println!("last_name: {}", l); }
-            if let Some(u) = c.unsubscribed { println!("unsubscribed: {}", u); }
-            if let Some(props) = &c.properties {
-                if !props.is_empty() {
-                    println!("properties:");
-                    for (k, v) in props {
-                        println!("  {} = {}", k, v);
-                    }
+            if let Some(f) = &c.first_name {
+                println!("first_name: {}", f);
+            }
+            if let Some(l) = &c.last_name {
+                println!("last_name: {}", l);
+            }
+            if let Some(u) = c.unsubscribed {
+                println!("unsubscribed: {}", u);
+            }
+            if let Some(props) = &c.properties
+                && !props.is_empty()
+            {
+                println!("properties:");
+                for (k, v) in props {
+                    println!("  {} = {}", k, v);
                 }
             }
         });
@@ -136,12 +145,15 @@ impl App {
     pub fn contact_update(&self, args: ContactUpdateArgs) -> Result<()> {
         let properties = parse_properties_arg(args.properties)?;
         let client = self.default_client()?;
-        let response = client.update_contact(&args.id_or_email, &UpdateContactRequest {
-            first_name: args.first_name,
-            last_name: args.last_name,
-            unsubscribed: args.unsubscribed,
-            properties,
-        })?;
+        let response = client.update_contact(
+            &args.id_or_email,
+            &UpdateContactRequest {
+                first_name: args.first_name,
+                last_name: args.last_name,
+                unsubscribed: args.unsubscribed,
+                properties,
+            },
+        )?;
         print_success_or(self.format, &response, |r| {
             println!("updated contact {}", r.id);
         });

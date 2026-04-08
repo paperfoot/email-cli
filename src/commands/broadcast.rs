@@ -37,16 +37,36 @@ impl App {
         let broadcast = client.get_broadcast(&args.id)?;
         print_success_or(self.format, &broadcast, |b| {
             println!("id: {}", b.id);
-            if let Some(name) = &b.name { println!("name: {}", name); }
-            if let Some(subject) = &b.subject { println!("subject: {}", subject); }
-            if let Some(from) = &b.from { println!("from: {}", from); }
-            if !b.reply_to.is_empty() { println!("reply_to: {}", b.reply_to.join(", ")); }
-            if let Some(seg) = &b.segment_id { println!("segment_id: {}", seg); }
-            if let Some(topic) = &b.topic_id { println!("topic_id: {}", topic); }
-            if let Some(preview) = &b.preview_text { println!("preview_text: {}", preview); }
-            if let Some(status) = &b.status { println!("status: {}", status); }
-            if let Some(scheduled) = &b.scheduled_at { println!("scheduled_at: {}", scheduled); }
-            if let Some(sent) = &b.sent_at { println!("sent_at: {}", sent); }
+            if let Some(name) = &b.name {
+                println!("name: {}", name);
+            }
+            if let Some(subject) = &b.subject {
+                println!("subject: {}", subject);
+            }
+            if let Some(from) = &b.from {
+                println!("from: {}", from);
+            }
+            if !b.reply_to.is_empty() {
+                println!("reply_to: {}", b.reply_to.join(", "));
+            }
+            if let Some(seg) = &b.segment_id {
+                println!("segment_id: {}", seg);
+            }
+            if let Some(topic) = &b.topic_id {
+                println!("topic_id: {}", topic);
+            }
+            if let Some(preview) = &b.preview_text {
+                println!("preview_text: {}", preview);
+            }
+            if let Some(status) = &b.status {
+                println!("status: {}", status);
+            }
+            if let Some(scheduled) = &b.scheduled_at {
+                println!("scheduled_at: {}", scheduled);
+            }
+            if let Some(sent) = &b.sent_at {
+                println!("sent_at: {}", sent);
+            }
         });
         Ok(())
     }
@@ -93,7 +113,9 @@ impl App {
 
     pub fn broadcast_send(&self, args: BroadcastSendArgs) -> Result<()> {
         let client = self.default_client()?;
-        let payload = SendBroadcastRequest { scheduled_at: args.scheduled_at };
+        let payload = SendBroadcastRequest {
+            scheduled_at: args.scheduled_at,
+        };
         let response = client.send_broadcast(&args.id, &payload)?;
         print_success_or(self.format, &response, |r| {
             println!("sent broadcast {}", r.id);

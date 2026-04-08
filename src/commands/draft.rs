@@ -9,7 +9,8 @@ use crate::cli::{
 };
 use crate::helpers::{
     ensure_reply_account_matches, normalize_email, normalize_emails,
-    remove_draft_attachment_snapshot, reply_headers_for_message, snapshot_draft_attachments, to_json,
+    remove_draft_attachment_snapshot, reply_headers_for_message, snapshot_draft_attachments,
+    to_json,
 };
 use crate::models::ResolvedCompose;
 use crate::output::print_success_or;
@@ -135,18 +136,9 @@ impl App {
         let subject = args.subject.unwrap_or(draft.subject);
         let text_body = args.text.or(draft.text_body);
         let html_body = args.html.or(draft.html_body);
-        let to = args
-            .to
-            .map(|v| normalize_emails(&v))
-            .unwrap_or(draft.to);
-        let cc = args
-            .cc
-            .map(|v| normalize_emails(&v))
-            .unwrap_or(draft.cc);
-        let bcc = args
-            .bcc
-            .map(|v| normalize_emails(&v))
-            .unwrap_or(draft.bcc);
+        let to = args.to.map(|v| normalize_emails(&v)).unwrap_or(draft.to);
+        let cc = args.cc.map(|v| normalize_emails(&v)).unwrap_or(draft.cc);
+        let bcc = args.bcc.map(|v| normalize_emails(&v)).unwrap_or(draft.bcc);
 
         self.conn.execute(
             "UPDATE drafts SET subject = ?1, text_body = ?2, html_body = ?3,

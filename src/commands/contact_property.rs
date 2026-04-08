@@ -20,7 +20,10 @@ fn parse_fallback(raw: Option<String>, property_type: &str) -> Result<Option<ser
             Ok(Some(value))
         }
         "string" => Ok(Some(serde_json::Value::String(raw))),
-        other => anyhow::bail!("unknown --property-type '{}', expected string|number", other),
+        other => anyhow::bail!(
+            "unknown --property-type '{}', expected string|number",
+            other
+        ),
     }
 }
 
@@ -35,7 +38,10 @@ impl App {
                     .as_ref()
                     .map(|v| v.to_string())
                     .unwrap_or_else(|| "(none)".to_string());
-                println!("{} key={} type={} fallback={}", prop.id, prop.key, prop.property_type, fallback);
+                println!(
+                    "{} key={} type={} fallback={}",
+                    prop.id, prop.key, prop.property_type, fallback
+                );
             }
             if list.data.is_empty() {
                 println!("no contact properties");
@@ -78,7 +84,9 @@ impl App {
         let client = self.default_client()?;
         let response = client.update_contact_property(
             &args.id,
-            &UpdateContactPropertyRequest { fallback_value: fallback },
+            &UpdateContactPropertyRequest {
+                fallback_value: fallback,
+            },
         )?;
         print_success_or(self.format, &response, |r| {
             println!("updated contact-property {}", r.id);

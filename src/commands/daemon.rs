@@ -7,12 +7,12 @@ use std::time::Duration;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol};
-use objc2::{define_class, msg_send, sel, MainThreadOnly};
+use objc2::{MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSImage, NSMenu, NSMenuItem, NSStatusBar,
     NSStatusItem,
 };
-use objc2_foundation::{NSData, NSDate, NSRunLoop, NSString, NSTimer};
+use objc2_foundation::{NSData, NSString, NSTimer};
 
 use crate::app::App;
 use crate::cli::DaemonArgs;
@@ -276,7 +276,9 @@ impl App {
             ),
         };
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let count: i64 = self.conn.query_row(sql, refs.as_slice(), |row| row.get(0))?;
+        let count: i64 = self
+            .conn
+            .query_row(sql, refs.as_slice(), |row| row.get(0))?;
         Ok(count as usize)
     }
 
@@ -340,9 +342,7 @@ fn update_status_display(
 fn new_menu_item(title: &str, mtm: MainThreadMarker) -> Retained<NSMenuItem> {
     let ns_title = NSString::from_str(title);
     let ns_key = NSString::from_str("");
-    unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), &ns_title, None, &ns_key)
-    }
+    unsafe { NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), &ns_title, None, &ns_key) }
 }
 
 fn make_action_item(
@@ -354,7 +354,12 @@ fn make_action_item(
     let ns_title = NSString::from_str(title);
     let ns_key = NSString::from_str("");
     let item = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(mtm.alloc(), &ns_title, Some(action), &ns_key)
+        NSMenuItem::initWithTitle_action_keyEquivalent(
+            mtm.alloc(),
+            &ns_title,
+            Some(action),
+            &ns_key,
+        )
     };
     unsafe { item.setTarget(Some(handler)) };
     item

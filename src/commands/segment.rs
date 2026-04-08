@@ -27,7 +27,9 @@ impl App {
         print_success_or(self.format, &segment, |s| {
             println!("id: {}", s.id);
             println!("name: {}", s.name);
-            if let Some(c) = &s.created_at { println!("created_at: {}", c); }
+            if let Some(c) = &s.created_at {
+                println!("created_at: {}", c);
+            }
         });
         Ok(())
     }
@@ -63,7 +65,10 @@ impl App {
         let client = self.default_client()?;
         let response = client.remove_contact_from_segment(&args.contact, &args.segment)?;
         print_success_or(self.format, &response, |_r| {
-            println!("removed contact={} from segment={}", args.contact, args.segment);
+            println!(
+                "removed contact={} from segment={}",
+                args.contact, args.segment
+            );
         });
         Ok(())
     }

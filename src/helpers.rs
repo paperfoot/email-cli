@@ -44,14 +44,14 @@ pub fn resolve_api_key(
         let content = fs::read_to_string(&path)
             .with_context(|| format!("failed to read {}", path.display()))?;
         for line in content.lines() {
-            if let Some((name, value)) = line.split_once('=') {
-                if name.trim() == env_name {
-                    let cleaned = cleanup_env_value(value);
-                    if cleaned.is_empty() {
-                        bail!("{} in {} is empty", env_name, path.display());
-                    }
-                    return Ok(cleaned);
+            if let Some((name, value)) = line.split_once('=')
+                && name.trim() == env_name
+            {
+                let cleaned = cleanup_env_value(value);
+                if cleaned.is_empty() {
+                    bail!("{} in {} is empty", env_name, path.display());
                 }
+                return Ok(cleaned);
             }
         }
         bail!("{} not found in {}", env_name, path.display());
@@ -70,7 +70,10 @@ pub fn cleanup_env_value(value: &str) -> String {
     value.replace("\\n", "").trim().to_string()
 }
 
-pub fn read_optional_content(value: Option<String>, path: Option<PathBuf>) -> Result<Option<String>> {
+pub fn read_optional_content(
+    value: Option<String>,
+    path: Option<PathBuf>,
+) -> Result<Option<String>> {
     match (value, path) {
         (Some(text), None) => Ok(Some(text)),
         (None, Some(path)) => fs::read_to_string(&path)
@@ -100,12 +103,12 @@ pub fn build_send_attachments(paths: &[PathBuf]) -> Result<Vec<SendAttachment>> 
 
 pub fn normalize_email(value: &str) -> String {
     let trimmed = value.trim();
-    if let Some(start) = trimmed.rfind('<') {
-        if let Some(end) = trimmed[start + 1..].find('>') {
-            return trimmed[start + 1..start + 1 + end]
-                .trim()
-                .to_ascii_lowercase();
-        }
+    if let Some(start) = trimmed.rfind('<')
+        && let Some(end) = trimmed[start + 1..].find('>')
+    {
+        return trimmed[start + 1..start + 1 + end]
+            .trim()
+            .to_ascii_lowercase();
     }
     trimmed.trim_matches('"').to_ascii_lowercase()
 }
@@ -196,7 +199,8 @@ fn notification_helper_path() -> std::path::PathBuf {
     // Search order: next to binary, data dir, repo assets
     let candidates = [
         std::env::current_exe().ok().and_then(|exe| {
-            exe.parent().map(|dir| dir.join("EmailCLI.app/Contents/MacOS/email-cli-notify"))
+            exe.parent()
+                .map(|dir| dir.join("EmailCLI.app/Contents/MacOS/email-cli-notify"))
         }),
         Some(
             data_local_dir()
@@ -210,14 +214,13 @@ fn notification_helper_path() -> std::path::PathBuf {
         }
     }
     // Fallback — won't exist, triggers osascript path
-    std::path::PathBuf::from("/usr/local/lib/email-cli/EmailCLI.app/Contents/MacOS/email-cli-notify")
+    std::path::PathBuf::from(
+        "/usr/local/lib/email-cli/EmailCLI.app/Contents/MacOS/email-cli-notify",
+    )
 }
 
 pub fn generate_message_id(sender_email: &str) -> String {
-    let domain = sender_email
-        .rsplit('@')
-        .next()
-        .unwrap_or("localhost");
+    let domain = sender_email.rsplit('@').next().unwrap_or("localhost");
     format!("<{}@{}>", uuid::Uuid::new_v4(), domain)
 }
 
@@ -259,8 +262,7 @@ pub fn reply_all_recipients(
         .filter(|addr| !addr.is_empty() && *addr != self_norm)
         .collect();
 
-    let to_set: std::collections::HashSet<&str> =
-        to.iter().map(String::as_str).collect();
+    let to_set: std::collections::HashSet<&str> = to.iter().map(String::as_str).collect();
 
     // CC: original To + original CC, minus self, minus anyone already in To
     let cc: Vec<String> = message
@@ -366,10 +368,10 @@ pub fn reply_headers_for_message(message: &MessageRecord) -> ReplyHeaders {
     let mut refs = message.references.clone();
     // RFC 5322 §3.6.4: when parent has no References but has In-Reply-To,
     // include it so the thread ancestry is preserved.
-    if refs.is_empty() {
-        if let Some(irt) = message.in_reply_to.as_deref() {
-            refs.push(irt.to_string());
-        }
+    if refs.is_empty()
+        && let Some(irt) = message.in_reply_to.as_deref()
+    {
+        refs.push(irt.to_string());
     }
     if let Some(message_id) = message.rfc_message_id.as_deref() {
         refs.push(message_id.to_string());
@@ -547,7 +549,10 @@ pub fn split_address_header(value: &str) -> Vec<String> {
     results
 }
 
-pub fn ensure_reply_account_matches(message: &MessageRecord, account: &AccountRecord) -> Result<()> {
+pub fn ensure_reply_account_matches(
+    message: &MessageRecord,
+    account: &AccountRecord,
+) -> Result<()> {
     if message.account_email != account.email {
         bail!(
             "message {} belongs to {}, not {}",
@@ -672,6 +677,9 @@ pub fn remove_draft_attachment_snapshot(base_dir: &Path, draft_id: &str) -> Resu
     Ok(())
 }
 
+/// Reserved for callers that want a stable per-payload idempotency key. Today the
+/// outbox path generates UUIDs inline, but the helper is kept for future use.
+#[allow(dead_code)]
 pub fn build_idempotency_key(request: &SendEmailRequest) -> Result<String> {
     let _ = request;
     Ok(format!("email-cli-{}", uuid::Uuid::new_v4()))
