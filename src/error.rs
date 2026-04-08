@@ -81,10 +81,33 @@ impl From<anyhow::Error> for CliError {
             return Self::InvalidInput(err.to_string());
         }
 
+        // Server-side validation failures (Resend API 422 / 400 / 409) are user-input
+        // problems, not internal failures. http.rs::decode_json bails with messages like
+        // "Resend API 422 Unprocessable Entity: ..." and "Resend API 400 Bad Request: ...".
+        if msg.contains(" 422 ")
+            || msg.contains(" 400 ")
+            || msg.contains(" 409 ")
+            || msg.contains("unprocessable entity")
+            || msg.contains("bad request")
+            || msg.contains("conflict")
+        {
+            return Self::InvalidInput(err.to_string());
+        }
+
+        // Authentication failures (401 / 403) usually mean a missing or wrong API key.
+        if msg.contains(" 401 ")
+            || msg.contains(" 403 ")
+            || msg.contains("unauthorized")
+            || msg.contains("forbidden")
+            || msg.contains("api key")
+        {
+            return Self::ConfigError(err.to_string());
+        }
+
         // Rate-limit exhaustion paths in resend.rs use phrases like
         // "kept rate limiting" and "429". Map them to RateLimited so callers get exit 4.
         if msg.contains("kept rate limiting")
-            || msg.contains("429")
+            || msg.contains(" 429 ")
             || msg.contains("rate limit")
             || msg.contains("too many requests")
         {

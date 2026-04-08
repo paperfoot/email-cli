@@ -169,7 +169,9 @@ impl ResendClient {
     // Segments (Audiences renamed to Segments in November 2025; /audiences endpoints
     // are still backward-compatible.)
     pub fn list_segments(&self) -> Result<SegmentList> {
-        self.get_json("/segments", &[])
+        // Resend defaults to limit=20 when omitted; pass the max so list commands don't
+        // silently truncate at 20 for common-sized data.
+        self.get_json("/segments", &[("limit", "100".to_string())])
     }
 
     pub fn get_segment(&self, id: &str) -> Result<Segment> {
@@ -218,20 +220,20 @@ impl ResendClient {
                 "/contacts/{}/segments",
                 urlencoding::encode(contact_id_or_email)
             ),
-            &[],
+            &[("limit", "100".to_string())],
         )
     }
 
     pub fn list_segment_contacts(&self, segment_id: &str) -> Result<ListResponse<Contact>> {
         self.get_json(
             &format!("/segments/{}/contacts", urlencoding::encode(segment_id)),
-            &[],
+            &[("limit", "100".to_string())],
         )
     }
 
     // Broadcasts
     pub fn list_broadcasts(&self) -> Result<BroadcastList> {
-        self.get_json("/broadcasts", &[])
+        self.get_json("/broadcasts", &[("limit", "100".to_string())])
     }
 
     pub fn get_broadcast(&self, id: &str) -> Result<Broadcast> {
@@ -260,7 +262,7 @@ impl ResendClient {
 
     // Contact Properties (schema CRUD)
     pub fn list_contact_properties(&self) -> Result<ContactPropertyList> {
-        self.get_json("/contact-properties", &[])
+        self.get_json("/contact-properties", &[("limit", "100".to_string())])
     }
 
     pub fn get_contact_property(&self, id: &str) -> Result<ContactProperty> {
@@ -288,7 +290,7 @@ impl ResendClient {
 
     // Topics
     pub fn list_topics(&self) -> Result<TopicList> {
-        self.get_json("/topics", &[])
+        self.get_json("/topics", &[("limit", "100".to_string())])
     }
 
     pub fn get_topic(&self, id: &str) -> Result<Topic> {
@@ -327,7 +329,7 @@ impl ResendClient {
                 "/contacts/{}/topics",
                 urlencoding::encode(contact_id_or_email)
             ),
-            &[],
+            &[("limit", "100".to_string())],
         )
     }
 
