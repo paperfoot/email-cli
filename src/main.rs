@@ -268,6 +268,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             TopicCommand::List => app.topic_list()?,
             TopicCommand::Get(args) => app.topic_get(args)?,
             TopicCommand::Create(args) => app.topic_create(args)?,
+            TopicCommand::Update(args) => app.topic_update(args)?,
             TopicCommand::Delete(args) => app.topic_delete(args)?,
             TopicCommand::ContactSet(args) => app.topic_contact_set(args)?,
             TopicCommand::ContactList(args) => app.topic_contact_list(args)?,
@@ -280,6 +281,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             SegmentCommand::ContactAdd(args) => app.segment_contact_add(args)?,
             SegmentCommand::ContactRemove(args) => app.segment_contact_remove(args)?,
             SegmentCommand::ContactList(args) => app.segment_contact_list(args)?,
+            SegmentCommand::Contacts(args) => app.segment_contacts(args)?,
         },
         Command::AgentInfo | Command::Skill { .. } | Command::Completions { .. } => {
             unreachable!()

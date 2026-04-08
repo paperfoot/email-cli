@@ -207,7 +207,7 @@ In the Resend dashboard, "Audience" is the section name in the left sidebar. It 
 |---|---|
 | `contact list` | List contacts (`--limit` 1-100, `--after <id>` for cursor pagination) |
 | `contact get <id_or_email>` | Get a contact by id or email (surfaces custom properties) |
-| `contact create --email <addr>` | Create a contact (`--first-name`, `--last-name`, `--unsubscribed`, `--properties '{"k":"v"}'`, `--segments seg1,seg2`) |
+| `contact create --email <addr>` | Create a contact (`--first-name`, `--last-name`, `--unsubscribed`, `--properties '{"k":"v"}'`, `--segments seg1,seg2`, `--topics top_xxx:opt_in,top_yyy:opt_out`) |
 | `contact update <id_or_email>` | Update contact fields (`--first-name`, `--last-name`, `--unsubscribed`, `--properties`) |
 | `contact delete <id_or_email>` | Delete a contact |
 
@@ -219,6 +219,7 @@ In the Resend dashboard, "Audience" is the section name in the left sidebar. It 
 | `segment get <id>` | Get segment details |
 | `segment create --name <n>` | Create a segment |
 | `segment delete <id>` | Delete a segment |
+| `segment contacts <id>` | List the contacts in a segment |
 | `segment contact-add --contact <id_or_email> --segment <id>` | Add a contact to a segment |
 | `segment contact-remove --contact <id_or_email> --segment <id>` | Remove a contact from a segment |
 | `segment contact-list --contact <id_or_email>` | List the segments a contact belongs to |
@@ -232,7 +233,7 @@ Resend's contact properties are typed key/value fields you attach to contacts. U
 | `contact-property list` | List defined contact-property schemas |
 | `contact-property get <id>` | Get a contact-property schema |
 | `contact-property create --key company --property-type string` | Define a property (`--fallback` for default value, `--property-type` `string`/`number`) |
-| `contact-property update <id> --fallback "N/A"` | Update a property's fallback value |
+| `contact-property update <id> --fallback "N/A"` | Update a property's fallback value (add `--as-number` if the property is numeric) |
 | `contact-property delete <id>` | Delete a contact-property schema |
 | `contact create --properties '{"company":"Acme","plan":"pro"}'` | Assign property values when creating a contact |
 
@@ -244,7 +245,8 @@ Topics power Resend's granular unsubscribe flow on broadcasts. Each contact can 
 |---|---|
 | `topic list` | List topics |
 | `topic get <id>` | Get topic details |
-| `topic create --name "Weekly Digest"` | Create a topic (`--description`, `--default-subscription opt_in`/`opt_out`) |
+| `topic create --name "Weekly Digest"` | Create a topic (`--description`, `--default-subscription opt_in`/`opt_out`, `--visibility public`/`private`) |
+| `topic update <id>` | Update topic fields (`--name`, `--description`, `--default-subscription`, `--visibility`) |
 | `topic delete <id>` | Delete a topic |
 | `topic contact-set --contact <id> --topic <id> --subscription opt_in` | Subscribe or unsubscribe a contact |
 | `topic contact-list --contact <id>` | List a contact's topic subscriptions |
@@ -257,8 +259,8 @@ Broadcasts are Resend's native campaign sending. Use these instead of `batch sen
 |---|---|
 | `broadcast list` | List broadcasts |
 | `broadcast get <id>` | Get broadcast details |
-| `broadcast create --audience-id <id> --from <addr> --subject <subj> --html <body>` | Create a broadcast (`--text`, `--name`, `--reply-to`, `--preview-text`) |
-| `broadcast update <id>` | Update a draft broadcast (any of the create flags + `--scheduled-at`) |
+| `broadcast create --segment-id <id> --from <addr> --subject <subj> --html <body>` | Create a broadcast (`--text`, `--name`, `--reply-to`, `--topic-id`, `--scheduled-at`, `--send` for inline send). `--audience-id` is accepted as a legacy alias. |
+| `broadcast update <id>` | Update a draft broadcast (`--segment-id`, `--from`, `--subject`, `--html`, `--text`, `--name`, `--reply-to`, `--topic-id`) |
 | `broadcast send <id>` | Send (or schedule via `--scheduled-at`) |
 | `broadcast delete <id>` | Delete (cancels scheduled broadcasts) |
 
@@ -309,7 +311,8 @@ email-cli topic contact-set \
 
 # 6. Create and send a broadcast (auto unsubscribe URL via {{{RESEND_UNSUBSCRIBE_URL}}})
 email-cli broadcast create \
-  --audience-id seg_abc123 \
+  --segment-id seg_abc123 \
+  --topic-id top_xyz \
   --from "Acme <hello@yourdomain.com>" \
   --subject "This week at Acme" \
   --html '<p>Hi {{first_name}},</p><p>Latest digest...</p><p><a href="{{{RESEND_UNSUBSCRIBE_URL}}}">Unsubscribe</a></p>'
@@ -321,7 +324,7 @@ email-cli broadcast send brd_456
 email-cli email list --limit 100
 ```
 
-> Note: `broadcast create --audience-id` is the parameter name Resend's Broadcasts API uses; in the new model it accepts a segment id. Resend keeps the legacy parameter name for backward compatibility.
+> Note: Wiring `--topic-id` on the broadcast tells Resend which topic the unsubscribe link should opt the recipient out of. Without `--topic-id`, the unsubscribe URL still works but uses an account-wide unsubscribe.
 
 ### Why polling beats running a second webhook listener
 

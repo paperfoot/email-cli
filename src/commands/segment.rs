@@ -81,4 +81,24 @@ impl App {
         });
         Ok(())
     }
+
+    pub fn segment_contacts(&self, args: SegmentContactsArgs) -> Result<()> {
+        let client = self.default_client()?;
+        let list = client.list_segment_contacts(&args.id)?;
+        print_success_or(self.format, &list, |list| {
+            for contact in &list.data {
+                let name = match (&contact.first_name, &contact.last_name) {
+                    (Some(f), Some(l)) => format!("{} {}", f, l),
+                    (Some(f), None) => f.clone(),
+                    (None, Some(l)) => l.clone(),
+                    (None, None) => String::new(),
+                };
+                println!("{} {} {}", contact.id, contact.email, name);
+            }
+            if list.data.is_empty() {
+                println!("no contacts in segment");
+            }
+        });
+        Ok(())
+    }
 }

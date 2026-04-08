@@ -29,6 +29,41 @@ fn split_csv(value: Option<String>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Parse `topic_id:opt_in,topic_id2:opt_out` into TopicRef list. Validates the subscription
+/// state, returning an InvalidInput-shaped error message on bad input.
+fn parse_topics_arg(value: Option<String>) -> Result<Option<Vec<TopicRef>>> {
+    let Some(raw) = value else {
+        return Ok(None);
+    };
+    let mut refs = Vec::new();
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let (id, sub) = entry.split_once(':').ok_or_else(|| {
+            anyhow::anyhow!(
+                "--topics entries must be 'topic_id:opt_in' or 'topic_id:opt_out', got '{}'",
+                entry
+            )
+        })?;
+        let id = id.trim().to_string();
+        let sub = sub.trim().to_string();
+        if sub != "opt_in" && sub != "opt_out" {
+            anyhow::bail!(
+                "--topics subscription must be 'opt_in' or 'opt_out', got '{}'",
+                sub
+            );
+        }
+        refs.push(TopicRef { id, subscription: sub });
+    }
+    if refs.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(refs))
+    }
+}
+
 impl App {
     pub fn contact_list(&self, args: ContactListArgs) -> Result<()> {
         let client = self.default_client()?;
@@ -81,6 +116,7 @@ impl App {
                 Some(ids.into_iter().map(|id| SegmentRef { id }).collect())
             }
         };
+        let topics = parse_topics_arg(args.topics)?;
         let client = self.default_client()?;
         let response = client.create_contact(&CreateContactRequest {
             email: args.email,
@@ -89,7 +125,7 @@ impl App {
             unsubscribed: args.unsubscribed,
             properties,
             segments,
-            topics: None,
+            topics,
         })?;
         print_success_or(self.format, &response, |r| {
             println!("created contact {}", r.id);
@@ -100,14 +136,14 @@ impl App {
     pub fn contact_update(&self, args: ContactUpdateArgs) -> Result<()> {
         let properties = parse_properties_arg(args.properties)?;
         let client = self.default_client()?;
-        let contact = client.update_contact(&args.id_or_email, &UpdateContactRequest {
+        let response = client.update_contact(&args.id_or_email, &UpdateContactRequest {
             first_name: args.first_name,
             last_name: args.last_name,
             unsubscribed: args.unsubscribed,
             properties,
         })?;
-        print_success_or(self.format, &contact, |c| {
-            println!("updated contact {} {}", c.id, c.email);
+        print_success_or(self.format, &response, |r| {
+            println!("updated contact {}", r.id);
         });
         Ok(())
     }

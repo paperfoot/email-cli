@@ -58,7 +58,7 @@ impl ResendClient {
     }
 
     pub fn get_sent_email(&self, id: &str) -> Result<SentEmail> {
-        self.get_json(&format!("/emails/{}", id), &[])
+        self.get_json(&format!("/emails/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn list_received_emails_page(
@@ -74,18 +74,18 @@ impl ResendClient {
     }
 
     pub fn get_received_email(&self, id: &str) -> Result<ReceivedEmail> {
-        self.get_json(&format!("/emails/receiving/{}", id), &[])
+        self.get_json(&format!("/emails/receiving/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn list_received_attachments(&self, email_id: &str) -> Result<Vec<ReceivedAttachment>> {
         let payload: ListResponse<ReceivedAttachment> =
-            self.get_json(&format!("/emails/receiving/{}/attachments", email_id), &[])?;
+            self.get_json(&format!("/emails/receiving/{}/attachments", urlencoding::encode(email_id)), &[])?;
         Ok(payload.data)
     }
 
     // Domains
     pub fn get_domain(&self, id: &str) -> Result<DomainDetail> {
-        self.get_json(&format!("/domains/{}", id), &[])
+        self.get_json(&format!("/domains/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn create_domain(&self, payload: &CreateDomainRequest) -> Result<CreateDomainResponse> {
@@ -93,15 +93,15 @@ impl ResendClient {
     }
 
     pub fn verify_domain(&self, id: &str) -> Result<DomainDetail> {
-        self.post_json(&format!("/domains/{}/verify", id), &serde_json::json!({}), None)
+        self.post_json(&format!("/domains/{}/verify", urlencoding::encode(id)), &serde_json::json!({}), None)
     }
 
     pub fn delete_domain(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/domains/{}", id))
+        self.delete_request(&format!("/domains/{}", urlencoding::encode(id)))
     }
 
     pub fn update_domain(&self, id: &str, payload: &UpdateDomainRequest) -> Result<DomainDetail> {
-        self.patch_json(&format!("/domains/{}", id), payload)
+        self.patch_json(&format!("/domains/{}", urlencoding::encode(id)), payload)
     }
 
     // Contacts (flat /contacts endpoints — Resend renamed Audiences to Segments
@@ -120,7 +120,10 @@ impl ResendClient {
     }
 
     pub fn get_contact(&self, contact_id_or_email: &str) -> Result<Contact> {
-        self.get_json(&format!("/contacts/{}", contact_id_or_email), &[])
+        self.get_json(
+            &format!("/contacts/{}", urlencoding::encode(contact_id_or_email)),
+            &[],
+        )
     }
 
     pub fn create_contact(&self, payload: &CreateContactRequest) -> Result<CreateContactResponse> {
@@ -131,12 +134,18 @@ impl ResendClient {
         &self,
         contact_id_or_email: &str,
         payload: &UpdateContactRequest,
-    ) -> Result<Contact> {
-        self.patch_json(&format!("/contacts/{}", contact_id_or_email), payload)
+    ) -> Result<IdResponse> {
+        self.patch_json(
+            &format!("/contacts/{}", urlencoding::encode(contact_id_or_email)),
+            payload,
+        )
     }
 
     pub fn delete_contact(&self, contact_id_or_email: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/contacts/{}", contact_id_or_email))
+        self.delete_request(&format!(
+            "/contacts/{}",
+            urlencoding::encode(contact_id_or_email)
+        ))
     }
 
     // Batch
@@ -154,7 +163,7 @@ impl ResendClient {
     }
 
     pub fn delete_api_key(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/api-keys/{}", id))
+        self.delete_request(&format!("/api-keys/{}", urlencoding::encode(id)))
     }
 
     // Segments (Audiences renamed to Segments in November 2025; /audiences endpoints
@@ -164,7 +173,7 @@ impl ResendClient {
     }
 
     pub fn get_segment(&self, id: &str) -> Result<Segment> {
-        self.get_json(&format!("/segments/{}", id), &[])
+        self.get_json(&format!("/segments/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn create_segment(&self, payload: &CreateSegmentRequest) -> Result<CreateSegmentResponse> {
@@ -172,7 +181,7 @@ impl ResendClient {
     }
 
     pub fn delete_segment(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/segments/{}", id))
+        self.delete_request(&format!("/segments/{}", urlencoding::encode(id)))
     }
 
     pub fn add_contact_to_segment(
@@ -181,7 +190,11 @@ impl ResendClient {
         segment_id: &str,
     ) -> Result<ContactSegmentResponse> {
         self.post_json(
-            &format!("/contacts/{}/segments/{}", contact_id_or_email, segment_id),
+            &format!(
+                "/contacts/{}/segments/{}",
+                urlencoding::encode(contact_id_or_email),
+                urlencoding::encode(segment_id)
+            ),
             &serde_json::json!({}),
             None,
         )
@@ -194,12 +207,26 @@ impl ResendClient {
     ) -> Result<ContactSegmentResponse> {
         self.delete_json(&format!(
             "/contacts/{}/segments/{}",
-            contact_id_or_email, segment_id
+            urlencoding::encode(contact_id_or_email),
+            urlencoding::encode(segment_id)
         ))
     }
 
     pub fn list_contact_segments(&self, contact_id_or_email: &str) -> Result<SegmentList> {
-        self.get_json(&format!("/contacts/{}/segments", contact_id_or_email), &[])
+        self.get_json(
+            &format!(
+                "/contacts/{}/segments",
+                urlencoding::encode(contact_id_or_email)
+            ),
+            &[],
+        )
+    }
+
+    pub fn list_segment_contacts(&self, segment_id: &str) -> Result<ListResponse<Contact>> {
+        self.get_json(
+            &format!("/segments/{}/contacts", urlencoding::encode(segment_id)),
+            &[],
+        )
     }
 
     // Broadcasts
@@ -208,7 +235,7 @@ impl ResendClient {
     }
 
     pub fn get_broadcast(&self, id: &str) -> Result<Broadcast> {
-        self.get_json(&format!("/broadcasts/{}", id), &[])
+        self.get_json(&format!("/broadcasts/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn create_broadcast(&self, payload: &CreateBroadcastRequest) -> Result<CreateBroadcastResponse> {
@@ -219,16 +246,16 @@ impl ResendClient {
         &self,
         id: &str,
         payload: &UpdateBroadcastRequest,
-    ) -> Result<Broadcast> {
-        self.patch_json(&format!("/broadcasts/{}", id), payload)
+    ) -> Result<IdResponse> {
+        self.patch_json(&format!("/broadcasts/{}", urlencoding::encode(id)), payload)
     }
 
     pub fn send_broadcast(&self, id: &str, payload: &SendBroadcastRequest) -> Result<SendBroadcastResponse> {
-        self.post_json(&format!("/broadcasts/{}/send", id), payload, None)
+        self.post_json(&format!("/broadcasts/{}/send", urlencoding::encode(id)), payload, None)
     }
 
     pub fn delete_broadcast(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/broadcasts/{}", id))
+        self.delete_request(&format!("/broadcasts/{}", urlencoding::encode(id)))
     }
 
     // Contact Properties (schema CRUD)
@@ -237,7 +264,7 @@ impl ResendClient {
     }
 
     pub fn get_contact_property(&self, id: &str) -> Result<ContactProperty> {
-        self.get_json(&format!("/contact-properties/{}", id), &[])
+        self.get_json(&format!("/contact-properties/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn create_contact_property(
@@ -251,12 +278,12 @@ impl ResendClient {
         &self,
         id: &str,
         payload: &UpdateContactPropertyRequest,
-    ) -> Result<ContactProperty> {
-        self.patch_json(&format!("/contact-properties/{}", id), payload)
+    ) -> Result<IdResponse> {
+        self.patch_json(&format!("/contact-properties/{}", urlencoding::encode(id)), payload)
     }
 
     pub fn delete_contact_property(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/contact-properties/{}", id))
+        self.delete_request(&format!("/contact-properties/{}", urlencoding::encode(id)))
     }
 
     // Topics
@@ -265,15 +292,19 @@ impl ResendClient {
     }
 
     pub fn get_topic(&self, id: &str) -> Result<Topic> {
-        self.get_json(&format!("/topics/{}", id), &[])
+        self.get_json(&format!("/topics/{}", urlencoding::encode(id)), &[])
     }
 
     pub fn create_topic(&self, payload: &CreateTopicRequest) -> Result<CreateTopicResponse> {
         self.post_json("/topics", payload, None)
     }
 
+    pub fn update_topic(&self, id: &str, payload: &UpdateTopicRequest) -> Result<IdResponse> {
+        self.patch_json(&format!("/topics/{}", urlencoding::encode(id)), payload)
+    }
+
     pub fn delete_topic(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/topics/{}", id))
+        self.delete_request(&format!("/topics/{}", urlencoding::encode(id)))
     }
 
     pub fn update_contact_topics(
@@ -282,13 +313,22 @@ impl ResendClient {
         payload: &UpdateContactTopicsRequest,
     ) -> Result<serde_json::Value> {
         self.patch_json(
-            &format!("/contacts/{}/topics", contact_id_or_email),
+            &format!(
+                "/contacts/{}/topics",
+                urlencoding::encode(contact_id_or_email)
+            ),
             payload,
         )
     }
 
     pub fn list_contact_topics(&self, contact_id_or_email: &str) -> Result<ContactTopicList> {
-        self.get_json(&format!("/contacts/{}/topics", contact_id_or_email), &[])
+        self.get_json(
+            &format!(
+                "/contacts/{}/topics",
+                urlencoding::encode(contact_id_or_email)
+            ),
+            &[],
+        )
     }
 
     pub fn download_attachment(&self, url: &str) -> Result<Vec<u8>> {

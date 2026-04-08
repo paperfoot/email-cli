@@ -263,6 +263,13 @@ pub struct DeleteResponse {
     pub deleted: bool,
 }
 
+/// Minimal `{ id }` response shape used by Resend's PATCH endpoints, which only echo
+/// the resource id rather than returning the full updated resource.
+#[derive(Debug, Deserialize, Serialize)]
+pub struct IdResponse {
+    pub id: String,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct SegmentRef {
     pub id: String,
@@ -461,10 +468,17 @@ pub struct ContactSegmentResponse {
 pub struct Broadcast {
     pub id: String,
     pub name: Option<String>,
-    pub audience_id: Option<String>,
+    /// Resend uses segment_id on the new API; the legacy field name was audience_id.
+    /// Some endpoints/responses may still echo audience_id, so we accept both.
+    #[serde(alias = "audience_id")]
+    pub segment_id: Option<String>,
     pub from: Option<String>,
     pub subject: Option<String>,
-    pub reply_to: Option<Value>,
+    #[serde(default, deserialize_with = "deserialize_string_vec")]
+    pub reply_to: Vec<String>,
+    pub topic_id: Option<String>,
+    pub html: Option<String>,
+    pub text: Option<String>,
     pub preview_text: Option<String>,
     pub status: Option<String>,
     pub created_at: Option<String>,
@@ -480,7 +494,7 @@ pub struct BroadcastList {
 
 #[derive(Debug, Serialize)]
 pub struct CreateBroadcastRequest {
-    pub audience_id: String,
+    pub segment_id: String,
     pub from: String,
     pub subject: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -492,7 +506,12 @@ pub struct CreateBroadcastRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview_text: Option<String>,
+    pub topic_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduled_at: Option<String>,
+    /// If true, send the broadcast immediately after creation (single API call).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -502,6 +521,8 @@ pub struct CreateBroadcastResponse {
 
 #[derive(Debug, Serialize, Default)]
 pub struct UpdateBroadcastRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segment_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -515,9 +536,7 @@ pub struct UpdateBroadcastRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub preview_text: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scheduled_at: Option<String>,
+    pub topic_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Default)]
@@ -577,6 +596,8 @@ pub struct Topic {
     pub name: String,
     pub description: Option<String>,
     pub default_subscription: Option<String>,
+    /// "public" or "private" — controls whether the topic is shown on the hosted preference page.
+    pub visibility: Option<String>,
     pub created_at: Option<String>,
 }
 
@@ -594,11 +615,26 @@ pub struct CreateTopicRequest {
     /// "opt_in" or "opt_out"
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_subscription: Option<String>,
+    /// "public" or "private"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct CreateTopicResponse {
     pub id: String,
+}
+
+#[derive(Debug, Serialize, Default)]
+pub struct UpdateTopicRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_subscription: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

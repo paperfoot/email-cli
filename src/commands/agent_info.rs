@@ -67,7 +67,7 @@ pub fn run(_format: Format) {
             "contacts": {
                 "contact list | ls": "List contacts (--limit 1-100, --after <id> for cursor pagination)",
                 "contact get | show <id_or_email>": "Get a contact by id or email (surfaces properties)",
-                "contact create | new --email <email>": "Create a contact (--first-name, --last-name, --unsubscribed, --properties '{\"k\":\"v\"}', --segments seg1,seg2). Property keys must be defined via `contact-property create` first.",
+                "contact create | new --email <email>": "Create a contact (--first-name, --last-name, --unsubscribed, --properties '{\"k\":\"v\"}', --segments seg1,seg2, --topics top_xxx:opt_in,top_yyy:opt_out). Property keys must be defined via `contact-property create` first.",
                 "contact update <id_or_email>": "Update contact fields (--first-name, --last-name, --unsubscribed, --properties)",
                 "contact delete | rm <id_or_email>": "Delete a contact",
             },
@@ -79,6 +79,7 @@ pub fn run(_format: Format) {
                 "segment contact-add --contact <id_or_email> --segment <id>": "Add a contact to a segment",
                 "segment contact-remove --contact <id_or_email> --segment <id>": "Remove a contact from a segment",
                 "segment contact-list --contact <id_or_email>": "List the segments a contact belongs to",
+                "segment contacts <id>": "List contacts in a segment",
             },
             "contact_properties": {
                 "contact-property list | ls": "List defined contact-property schemas",
@@ -90,16 +91,17 @@ pub fn run(_format: Format) {
             "topics": {
                 "topic list | ls": "List topics",
                 "topic get | show <id>": "Get topic details",
-                "topic create | new --name <name>": "Create a topic (--description, --default-subscription opt_in|opt_out)",
+                "topic create | new --name <name>": "Create a topic (--description, --default-subscription opt_in|opt_out, --visibility public|private)",
+                "topic update <id>": "Update a topic (--name, --description, --default-subscription, --visibility)",
                 "topic delete | rm <id>": "Delete a topic",
                 "topic contact-set --contact <id_or_email> --topic <id> --subscription opt_in|opt_out": "Subscribe or unsubscribe a contact to a topic. Used by broadcasts for granular preferences.",
                 "topic contact-list --contact <id_or_email>": "List a contact's topic subscriptions",
             },
             "broadcasts": {
                 "broadcast list | ls": "List broadcasts",
-                "broadcast get | show <id>": "Get broadcast details",
-                "broadcast create | new --audience-id <id> --from <addr> --subject <subj>": "Create a broadcast (--html, --text, --name, --reply-to, --preview-text). Use `{{{RESEND_UNSUBSCRIBE_URL}}}` in --html for auto unsubscribe wiring.",
-                "broadcast update <id>": "Update a draft broadcast (--from, --subject, --html, --text, --name, --reply-to, --preview-text, --scheduled-at)",
+                "broadcast get | show <id>": "Get broadcast details (segment_id, topic_id, html, text, preview_text, status)",
+                "broadcast create | new --segment-id <id> --from <addr> --subject <subj>": "Create a broadcast (--html, --text, --name, --reply-to, --topic-id, --scheduled-at, --send for inline send). Use `{{{RESEND_UNSUBSCRIBE_URL}}}` in --html for auto unsubscribe wiring. --audience-id is accepted as a legacy alias for --segment-id.",
+                "broadcast update <id>": "Update a draft broadcast (--segment-id, --from, --subject, --html, --text, --name, --reply-to, --topic-id)",
                 "broadcast send <id>": "Send (or schedule) a broadcast (--scheduled-at <iso>)",
                 "broadcast delete | rm <id>": "Delete (or cancel scheduled) broadcast",
             },

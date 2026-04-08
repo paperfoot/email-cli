@@ -73,14 +73,15 @@ impl App {
     }
 
     pub fn contact_property_update(&self, args: ContactPropertyUpdateArgs) -> Result<()> {
-        let fallback = parse_fallback(args.fallback, &args.property_type)?;
+        let property_type = if args.as_number { "number" } else { "string" };
+        let fallback = parse_fallback(args.fallback, property_type)?;
         let client = self.default_client()?;
-        let prop = client.update_contact_property(
+        let response = client.update_contact_property(
             &args.id,
             &UpdateContactPropertyRequest { fallback_value: fallback },
         )?;
-        print_success_or(self.format, &prop, |p| {
-            println!("updated contact-property {} key={}", p.id, p.key);
+        print_success_or(self.format, &response, |r| {
+            println!("updated contact-property {}", r.id);
         });
         Ok(())
     }

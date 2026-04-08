@@ -1,6 +1,17 @@
 use clap::{Args, Parser, Subcommand};
 use std::path::PathBuf;
 
+/// Validate that a limit value is within Resend's documented range (1-100).
+fn parse_resend_limit(raw: &str) -> Result<usize, String> {
+    let value: usize = raw
+        .parse()
+        .map_err(|err: std::num::ParseIntError| err.to_string())?;
+    if !(1..=100).contains(&value) {
+        return Err(format!("must be a number between 1 and 100, got {}", value));
+    }
+    Ok(value)
+}
+
 #[derive(Parser)]
 #[command(
     name = "email-cli",
@@ -571,7 +582,7 @@ pub enum ContactCommand {
 #[derive(Args)]
 pub struct ContactListArgs {
     /// Number of contacts to return (1-100). Defaults to 50.
-    #[arg(long, default_value = "50")]
+    #[arg(long, default_value = "50", value_parser = parse_resend_limit)]
     pub limit: usize,
     /// Cursor: return contacts after this contact id.
     #[arg(long)]
@@ -602,6 +613,10 @@ pub struct ContactCreateArgs {
     /// (e.g. --segments seg_abc123,seg_def456).
     #[arg(long, value_name = "ID,ID,...")]
     pub segments: Option<String>,
+    /// Comma-separated topic subscriptions to set at create time, each formatted as
+    /// `topic_id:opt_in` or `topic_id:opt_out` (e.g. --topics top_xxx:opt_in,top_yyy:opt_out).
+    #[arg(long, value_name = "TOPIC:STATE,...")]
+    pub topics: Option<String>,
 }
 
 #[derive(Args)]
@@ -724,7 +739,7 @@ pub enum EmailCommand {
 #[derive(Args)]
 pub struct EmailListArgs {
     /// Number of emails to return (1-100). Defaults to 20.
-    #[arg(long, default_value = "20")]
+    #[arg(long, default_value = "20", value_parser = parse_resend_limit)]
     pub limit: usize,
     /// Cursor: return emails created after this email id.
     #[arg(long)]
@@ -750,6 +765,9 @@ pub enum BroadcastCommand {
 #[derive(Args)]
 pub struct BroadcastUpdateArgs {
     pub id: String,
+    /// Change the target segment.
+    #[arg(long)]
+    pub segment_id: Option<String>,
     #[arg(long)]
     pub from: Option<String>,
     #[arg(long)]
@@ -763,11 +781,9 @@ pub struct BroadcastUpdateArgs {
     /// Reply-to address(es), comma-separated.
     #[arg(long)]
     pub reply_to: Option<String>,
+    /// Topic ID for per-recipient unsubscribe wiring.
     #[arg(long)]
-    pub preview_text: Option<String>,
-    /// Schedule the broadcast (ISO-8601 / RFC-3339 timestamp).
-    #[arg(long)]
-    pub scheduled_at: Option<String>,
+    pub topic_id: Option<String>,
 }
 
 #[derive(Args)]
@@ -777,9 +793,9 @@ pub struct BroadcastGetArgs {
 
 #[derive(Args)]
 pub struct BroadcastCreateArgs {
-    /// Audience (segment) ID to send to.
-    #[arg(long)]
-    pub audience_id: String,
+    /// Segment ID to send to. Accepts a segment id or (legacy) audience id.
+    #[arg(long, visible_alias = "audience-id")]
+    pub segment_id: String,
     /// Sender address (e.g. "Name <sender@example.com>").
     #[arg(long)]
     pub from: String,
@@ -797,9 +813,15 @@ pub struct BroadcastCreateArgs {
     /// Reply-to address(es), comma-separated.
     #[arg(long)]
     pub reply_to: Option<String>,
-    /// Preview text shown next to the subject in many clients.
+    /// Topic ID to scope this broadcast to (drives per-recipient unsubscribe URL).
     #[arg(long)]
-    pub preview_text: Option<String>,
+    pub topic_id: Option<String>,
+    /// Schedule send (ISO-8601 / RFC-3339 timestamp, or natural language per Resend).
+    #[arg(long)]
+    pub scheduled_at: Option<String>,
+    /// Send the broadcast immediately after creation (single API call).
+    #[arg(long)]
+    pub send: bool,
 }
 
 #[derive(Args)]
@@ -833,12 +855,13 @@ pub enum ContactPropertyCommand {
 #[derive(Args)]
 pub struct ContactPropertyUpdateArgs {
     pub id: String,
-    /// New fallback value (must match the property's type).
+    /// New fallback value. Pass numbers as their text representation; we'll send them as
+    /// numbers when `--as-number` is set, otherwise as strings.
     #[arg(long)]
     pub fallback: Option<String>,
-    /// Property type for fallback parsing: "string" or "number". Defaults to "string".
-    #[arg(long, default_value = "string")]
-    pub property_type: String,
+    /// Treat `--fallback` as a number rather than a string.
+    #[arg(long)]
+    pub as_number: bool,
 }
 
 #[derive(Args)]
@@ -874,12 +897,28 @@ pub enum TopicCommand {
     Get(TopicGetArgs),
     #[command(visible_alias = "new")]
     Create(TopicCreateArgs),
+    Update(TopicUpdateArgs),
     #[command(visible_alias = "rm")]
     Delete(TopicDeleteArgs),
     /// Subscribe / unsubscribe a contact to a topic
     ContactSet(TopicContactSetArgs),
     /// List a contact's topic subscriptions
     ContactList(TopicContactListArgs),
+}
+
+#[derive(Args)]
+pub struct TopicUpdateArgs {
+    pub id: String,
+    #[arg(long)]
+    pub name: Option<String>,
+    #[arg(long)]
+    pub description: Option<String>,
+    /// Default subscription state for new contacts: "opt_in" or "opt_out".
+    #[arg(long)]
+    pub default_subscription: Option<String>,
+    /// "public" or "private" — controls visibility on the hosted preference page.
+    #[arg(long)]
+    pub visibility: Option<String>,
 }
 
 #[derive(Args)]
@@ -903,6 +942,9 @@ pub struct TopicCreateArgs {
     /// Default subscription state for new contacts: "opt_in" or "opt_out".
     #[arg(long)]
     pub default_subscription: Option<String>,
+    /// "public" or "private" — controls visibility on the hosted preference page.
+    #[arg(long)]
+    pub visibility: Option<String>,
 }
 
 #[derive(Args)]
@@ -941,6 +983,14 @@ pub enum SegmentCommand {
     ContactRemove(SegmentContactArgs),
     /// List the segments a contact belongs to
     ContactList(SegmentContactListArgs),
+    /// List the contacts in a segment
+    Contacts(SegmentContactsArgs),
+}
+
+#[derive(Args)]
+pub struct SegmentContactsArgs {
+    /// Segment id
+    pub id: String,
 }
 
 #[derive(Args)]
