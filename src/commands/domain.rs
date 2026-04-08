@@ -9,11 +9,14 @@ impl App {
     /// Get the API client for the first (or only) profile.
     /// Domain/contact/segment/topic/broadcast/api-key commands are profile-level.
     pub fn default_client(&self) -> Result<crate::resend::ResendClient> {
-        let name: String = self.conn.query_row(
-            "SELECT name FROM profiles ORDER BY name LIMIT 1",
-            [],
-            |row| row.get(0),
-        ).context("no profiles configured \u{2014} run: email-cli profile add")?;
+        let name: String = self
+            .conn
+            .query_row(
+                "SELECT name FROM profiles ORDER BY name LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .context("no profiles configured \u{2014} run: email-cli profile add")?;
         self.client_for_profile(&name)
     }
 
@@ -66,7 +69,11 @@ impl App {
         let client = self.default_client()?;
         let domain = client.verify_domain(&args.id)?;
         print_success_or(self.format, &domain, |d| {
-            println!("verified {} status={}", d.name, d.status.as_deref().unwrap_or("unknown"));
+            println!(
+                "verified {} status={}",
+                d.name,
+                d.status.as_deref().unwrap_or("unknown")
+            );
         });
         Ok(())
     }
@@ -82,12 +89,19 @@ impl App {
 
     pub fn domain_update(&self, args: DomainUpdateArgs) -> Result<()> {
         let client = self.default_client()?;
-        let domain = client.update_domain(&args.id, &UpdateDomainRequest {
-            open_tracking: args.open_tracking,
-            click_tracking: args.click_tracking,
-        })?;
+        let domain = client.update_domain(
+            &args.id,
+            &UpdateDomainRequest {
+                open_tracking: args.open_tracking,
+                click_tracking: args.click_tracking,
+            },
+        )?;
         print_success_or(self.format, &domain, |d| {
-            println!("updated {} status={}", d.name, d.status.as_deref().unwrap_or("unknown"));
+            println!(
+                "updated {} status={}",
+                d.name,
+                d.status.as_deref().unwrap_or("unknown")
+            );
         });
         Ok(())
     }

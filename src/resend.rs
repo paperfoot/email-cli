@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use std::thread::sleep;
 use std::time::Duration;
 
-use crate::http::{backoff, retry_delay, should_retry_error, decode_json, decode_bytes};
+use crate::http::{backoff, decode_bytes, decode_json, retry_delay, should_retry_error};
 use crate::models::*;
 
 pub struct ResendClient {
@@ -74,12 +74,20 @@ impl ResendClient {
     }
 
     pub fn get_received_email(&self, id: &str) -> Result<ReceivedEmail> {
-        self.get_json(&format!("/emails/receiving/{}", urlencoding::encode(id)), &[])
+        self.get_json(
+            &format!("/emails/receiving/{}", urlencoding::encode(id)),
+            &[],
+        )
     }
 
     pub fn list_received_attachments(&self, email_id: &str) -> Result<Vec<ReceivedAttachment>> {
-        let payload: ListResponse<ReceivedAttachment> =
-            self.get_json(&format!("/emails/receiving/{}/attachments", urlencoding::encode(email_id)), &[])?;
+        let payload: ListResponse<ReceivedAttachment> = self.get_json(
+            &format!(
+                "/emails/receiving/{}/attachments",
+                urlencoding::encode(email_id)
+            ),
+            &[],
+        )?;
         Ok(payload.data)
     }
 
@@ -93,7 +101,11 @@ impl ResendClient {
     }
 
     pub fn verify_domain(&self, id: &str) -> Result<DomainDetail> {
-        self.post_json(&format!("/domains/{}/verify", urlencoding::encode(id)), &serde_json::json!({}), None)
+        self.post_json(
+            &format!("/domains/{}/verify", urlencoding::encode(id)),
+            &serde_json::json!({}),
+            None,
+        )
     }
 
     pub fn delete_domain(&self, id: &str) -> Result<DeleteResponse> {
@@ -240,7 +252,10 @@ impl ResendClient {
         self.get_json(&format!("/broadcasts/{}", urlencoding::encode(id)), &[])
     }
 
-    pub fn create_broadcast(&self, payload: &CreateBroadcastRequest) -> Result<CreateBroadcastResponse> {
+    pub fn create_broadcast(
+        &self,
+        payload: &CreateBroadcastRequest,
+    ) -> Result<CreateBroadcastResponse> {
         self.post_json("/broadcasts", payload, None)
     }
 
@@ -252,8 +267,16 @@ impl ResendClient {
         self.patch_json(&format!("/broadcasts/{}", urlencoding::encode(id)), payload)
     }
 
-    pub fn send_broadcast(&self, id: &str, payload: &SendBroadcastRequest) -> Result<SendBroadcastResponse> {
-        self.post_json(&format!("/broadcasts/{}/send", urlencoding::encode(id)), payload, None)
+    pub fn send_broadcast(
+        &self,
+        id: &str,
+        payload: &SendBroadcastRequest,
+    ) -> Result<SendBroadcastResponse> {
+        self.post_json(
+            &format!("/broadcasts/{}/send", urlencoding::encode(id)),
+            payload,
+            None,
+        )
     }
 
     pub fn delete_broadcast(&self, id: &str) -> Result<DeleteResponse> {
@@ -266,7 +289,10 @@ impl ResendClient {
     }
 
     pub fn get_contact_property(&self, id: &str) -> Result<ContactProperty> {
-        self.get_json(&format!("/contact-properties/{}", urlencoding::encode(id)), &[])
+        self.get_json(
+            &format!("/contact-properties/{}", urlencoding::encode(id)),
+            &[],
+        )
     }
 
     pub fn create_contact_property(
@@ -281,7 +307,10 @@ impl ResendClient {
         id: &str,
         payload: &UpdateContactPropertyRequest,
     ) -> Result<IdResponse> {
-        self.patch_json(&format!("/contact-properties/{}", urlencoding::encode(id)), payload)
+        self.patch_json(
+            &format!("/contact-properties/{}", urlencoding::encode(id)),
+            payload,
+        )
     }
 
     pub fn delete_contact_property(&self, id: &str) -> Result<DeleteResponse> {

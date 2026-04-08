@@ -40,14 +40,12 @@ impl App {
                     if matches!(self.format, Format::Human) {
                         eprintln!("event: {}", event_type);
                     }
-                    let response =
-                        tiny_http::Response::from_string("ok").with_status_code(200);
+                    let response = tiny_http::Response::from_string("ok").with_status_code(200);
                     let _ = request.respond(response);
                 }
                 Err(e) => {
                     eprintln!("error processing event: {}", e);
-                    let response =
-                        tiny_http::Response::from_string("error").with_status_code(500);
+                    let response = tiny_http::Response::from_string("error").with_status_code(500);
                     let _ = request.respond(response);
                 }
             }
@@ -76,39 +74,30 @@ impl App {
         self.store_event(email_id, &event_type, body)?;
 
         // If it's a received email event, trigger a sync for that email
-        if event_type == "email.received" {
-            if let Some(data) = payload.get("data") {
-                if let Some(id) = data.get("id").and_then(|v| v.as_str()) {
-                    // Try to fetch and store the received email
-                    if let Ok(accounts) = self.list_accounts() {
-                        for account in &accounts {
-                            if let Ok(client) = self.client_for_profile(&account.profile_name) {
-                                if let Ok(detail) = client.get_received_email(id) {
-                                    if crate::helpers::received_email_matches_account(
-                                        &detail,
-                                        &account.email,
-                                    ) {
-                                        let _ = self
-                                            .store_received_message(account, detail.clone());
-                                        if let Ok(msg) = self.get_message_by_remote_id(id) {
-                                            let _ = self.store_received_attachments(
-                                                msg.id,
-                                                &detail.attachments,
-                                            );
-                                        }
-                                        if notify {
-                                            let from = detail.from.as_deref().unwrap_or("unknown");
-                                            let subject = detail.subject.as_deref().unwrap_or("(no subject)");
-                                            send_desktop_notification(
-                                                &format!("New email to {}", account.email),
-                                                &format!("From: {}\n{}", from, subject),
-                                            );
-                                        }
-                                        break;
-                                    }
-                                }
-                            }
+        if event_type == "email.received"
+            && let Some(data) = payload.get("data")
+            && let Some(id) = data.get("id").and_then(|v| v.as_str())
+        {
+            // Try to fetch and store the received email
+            if let Ok(accounts) = self.list_accounts() {
+                for account in &accounts {
+                    if let Ok(client) = self.client_for_profile(&account.profile_name)
+                        && let Ok(detail) = client.get_received_email(id)
+                        && crate::helpers::received_email_matches_account(&detail, &account.email)
+                    {
+                        let _ = self.store_received_message(account, detail.clone());
+                        if let Ok(msg) = self.get_message_by_remote_id(id) {
+                            let _ = self.store_received_attachments(msg.id, &detail.attachments);
                         }
+                        if notify {
+                            let from = detail.from.as_deref().unwrap_or("unknown");
+                            let subject = detail.subject.as_deref().unwrap_or("(no subject)");
+                            send_desktop_notification(
+                                &format!("New email to {}", account.email),
+                                &format!("From: {}\n{}", from, subject),
+                            );
+                        }
+                        break;
                     }
                 }
             }

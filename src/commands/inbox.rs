@@ -3,8 +3,8 @@ use rusqlite::params;
 
 use crate::app::App;
 use crate::cli::{
-    InboxArchiveArgs, InboxDeleteArgs, InboxListArgs, InboxMarkArgs, InboxPurgeArgs,
-    InboxReadArgs, InboxSearchArgs, InboxStatsArgs, InboxThreadArgs, InboxUnarchiveArgs,
+    InboxArchiveArgs, InboxDeleteArgs, InboxListArgs, InboxMarkArgs, InboxPurgeArgs, InboxReadArgs,
+    InboxSearchArgs, InboxStatsArgs, InboxThreadArgs, InboxUnarchiveArgs,
 };
 use crate::helpers::compact_targets;
 use crate::output::print_success_or;
@@ -89,7 +89,8 @@ impl App {
             where_clause
         );
 
-        let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_vals.iter().map(|p| p.as_ref()).collect();
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(refs.as_slice(), crate::db::map_summary)?;
         let mut messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
@@ -119,10 +120,8 @@ impl App {
                     message.subject
                 );
             }
-            if has_more {
-                if let Some(cursor) = next_cursor {
-                    println!("--- more results: --after {}", cursor);
-                }
+            if has_more && let Some(cursor) = next_cursor {
+                println!("--- more results: --after {}", cursor);
             }
         });
 
@@ -191,10 +190,18 @@ impl App {
             .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
             .filter_map(|r| r.ok())
             .collect();
-        let updated_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
-        let missing_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let updated_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| existing.contains(id))
+            .collect();
+        let missing_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| !existing.contains(id))
+            .collect();
         let count = updated_ids.len();
 
         let label = if args.unread { "unread" } else { "read" };
@@ -229,10 +236,18 @@ impl App {
             .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
             .filter_map(|r| r.ok())
             .collect();
-        let deleted_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
-        let missing_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let deleted_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| existing.contains(id))
+            .collect();
+        let missing_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| !existing.contains(id))
+            .collect();
 
         let sql = format!("DELETE FROM messages WHERE id IN ({})", ph);
         self.conn.execute(&sql, refs.as_slice())?;
@@ -260,10 +275,7 @@ impl App {
         }
         let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
         let ph = placeholders.join(",");
-        let sql = format!(
-            "UPDATE messages SET archived = 1 WHERE id IN ({})",
-            ph
-        );
+        let sql = format!("UPDATE messages SET archived = 1 WHERE id IN ({})", ph);
         let params: Vec<Box<dyn rusqlite::types::ToSql>> =
             args.ids.iter().map(|id| Box::new(*id) as _).collect();
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -276,10 +288,18 @@ impl App {
             .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
             .filter_map(|r| r.ok())
             .collect();
-        let updated_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
-        let missing_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let updated_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| existing.contains(id))
+            .collect();
+        let missing_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| !existing.contains(id))
+            .collect();
         let count = updated_ids.len();
 
         if count == 0 {
@@ -304,10 +324,7 @@ impl App {
         }
         let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i)).collect();
         let ph = placeholders.join(",");
-        let sql = format!(
-            "UPDATE messages SET archived = 0 WHERE id IN ({})",
-            ph
-        );
+        let sql = format!("UPDATE messages SET archived = 0 WHERE id IN ({})", ph);
         let params: Vec<Box<dyn rusqlite::types::ToSql>> =
             args.ids.iter().map(|id| Box::new(*id) as _).collect();
         let refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
@@ -320,10 +337,18 @@ impl App {
             .query_map(refs.as_slice(), |row| row.get::<_, i64>(0))?
             .filter_map(|r| r.ok())
             .collect();
-        let updated_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| existing.contains(id)).collect();
-        let missing_ids: Vec<i64> =
-            args.ids.iter().copied().filter(|id| !existing.contains(id)).collect();
+        let updated_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| existing.contains(id))
+            .collect();
+        let missing_ids: Vec<i64> = args
+            .ids
+            .iter()
+            .copied()
+            .filter(|id| !existing.contains(id))
+            .collect();
         let count = updated_ids.len();
 
         if count == 0 {
@@ -386,7 +411,8 @@ impl App {
         for id in &thread_ids {
             param_vals.push(Box::new(id.clone()));
         }
-        let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_vals.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(refs.as_slice(), crate::db::map_summary)?;
@@ -428,7 +454,11 @@ impl App {
         let mut stmt = self.conn.prepare(sql)?;
         let rows = if let Some(account) = &args.account {
             stmt.query_map(
-                params![args.query, crate::helpers::normalize_email(account), args.limit as i64],
+                params![
+                    args.query,
+                    crate::helpers::normalize_email(account),
+                    args.limit as i64
+                ],
                 crate::db::map_summary,
             )?
         } else {
@@ -459,7 +489,8 @@ impl App {
             let acct = crate::helpers::normalize_email(account);
             let total: i64 = self.conn.query_row(
                 "SELECT COUNT(*) FROM messages WHERE account_email = ?1",
-                params![acct], |r| r.get(0),
+                params![acct],
+                |r| r.get(0),
             )?;
             let unread: i64 = self.conn.query_row(
                 "SELECT COUNT(*) FROM messages WHERE account_email = ?1 AND is_read = 0 AND direction = 'received' AND archived = 0",
@@ -467,24 +498,32 @@ impl App {
             )?;
             let archived: i64 = self.conn.query_row(
                 "SELECT COUNT(*) FROM messages WHERE account_email = ?1 AND archived = 1",
-                params![acct], |r| r.get(0),
+                params![acct],
+                |r| r.get(0),
             )?;
             let sent: i64 = self.conn.query_row(
                 "SELECT COUNT(*) FROM messages WHERE account_email = ?1 AND direction = 'sent'",
-                params![acct], |r| r.get(0),
+                params![acct],
+                |r| r.get(0),
             )?;
             (total, unread, archived, sent)
         } else {
-            let total: i64 = self.conn.query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
+            let total: i64 = self
+                .conn
+                .query_row("SELECT COUNT(*) FROM messages", [], |r| r.get(0))?;
             let unread: i64 = self.conn.query_row(
                 "SELECT COUNT(*) FROM messages WHERE is_read = 0 AND direction = 'received' AND archived = 0",
                 [], |r| r.get(0),
             )?;
             let archived: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM messages WHERE archived = 1", [], |r| r.get(0),
+                "SELECT COUNT(*) FROM messages WHERE archived = 1",
+                [],
+                |r| r.get(0),
             )?;
             let sent: i64 = self.conn.query_row(
-                "SELECT COUNT(*) FROM messages WHERE direction = 'sent'", [], |r| r.get(0),
+                "SELECT COUNT(*) FROM messages WHERE direction = 'sent'",
+                [],
+                |r| r.get(0),
             )?;
             (total, unread, archived, sent)
         };

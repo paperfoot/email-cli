@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use rusqlite::params;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;

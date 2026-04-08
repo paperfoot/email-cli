@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::Serialize;
 
 use crate::app::App;
-use crate::output::{Format, print_success_or};
+use crate::output::print_success_or;
 
 #[derive(Serialize)]
 struct UpdateResult {
@@ -39,7 +39,10 @@ impl App {
                 if up_to_date {
                     println!("Up to date (v{})", r.current_version);
                 } else {
-                    println!("Update available: v{} -> v{}", r.current_version, r.latest_version);
+                    println!(
+                        "Update available: v{} -> v{}",
+                        r.current_version, r.latest_version
+                    );
                     println!("Run `email-cli update` to install");
                 }
             });

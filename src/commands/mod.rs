@@ -1,14 +1,14 @@
 pub mod account;
 pub mod agent_info;
 pub mod api_key;
-pub mod daemon;
 pub mod attachments;
 pub mod batch;
 pub mod broadcast;
 pub mod contact;
 pub mod contact_property;
-pub mod draft;
+pub mod daemon;
 pub mod domain;
+pub mod draft;
 pub mod email;
 pub mod events;
 pub mod inbox;

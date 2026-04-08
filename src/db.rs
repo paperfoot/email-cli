@@ -357,6 +357,10 @@ impl App {
             .context("message not found")
     }
 
+    /// Generic message list query. Currently superseded by more specific helpers
+    /// (`inbox_list`, `inbox_search`, `inbox_thread`); kept for callers that want
+    /// the raw shape.
+    #[allow(dead_code)]
     pub fn list_messages(
         &self,
         account: Option<&str>,
@@ -496,11 +500,7 @@ impl App {
             .map_err(Into::into)
     }
 
-    pub fn get_sync_cursor(
-        &self,
-        account_email: &str,
-        direction: &str,
-    ) -> Result<Option<String>> {
+    pub fn get_sync_cursor(&self, account_email: &str, direction: &str) -> Result<Option<String>> {
         self.conn
             .query_row(
                 "
@@ -595,7 +595,9 @@ impl App {
             subject: email.subject.unwrap_or_default(),
             text_body: email.text.clone(),
             html_body: email.html.clone(),
-            rfc_message_id: email.message_id.clone()
+            rfc_message_id: email
+                .message_id
+                .clone()
                 .or_else(|| header_string(&headers, "message-id")),
             in_reply_to,
             references,
@@ -739,6 +741,9 @@ impl App {
         );
     }
 
+    /// Currently the dispatcher does not roll up exit codes per-command, but the schema
+    /// supports it; kept for the daemon and future invocations that want to record exit.
+    #[allow(dead_code)]
     pub fn log_command_exit(&self, command: &str, exit_code: i32) {
         let _ = self.conn.execute(
             "UPDATE command_log SET exit_code = ?1 WHERE id = (SELECT MAX(id) FROM command_log WHERE command = ?2)",

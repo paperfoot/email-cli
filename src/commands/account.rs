@@ -60,13 +60,7 @@ impl App {
             .optional()?
             .unwrap_or(0)
             == 1;
-        let is_default = if args.default {
-            true
-        } else if existing_default {
-            true
-        } else {
-            !has_default
-        };
+        let is_default = args.default || existing_default || !has_default;
         if is_default {
             tx.execute("UPDATE accounts SET is_default = 0", [])?;
         }
