@@ -257,41 +257,27 @@ pub struct UpdateDomainRequest {
     pub click_tracking: Option<bool>,
 }
 
-// ── Audience types ─────────────────────────────────────────────────────────
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Audience {
-    pub id: String,
-    pub name: String,
-    pub created_at: Option<String>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct AudienceList {
-    #[serde(default)]
-    pub data: Vec<Audience>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct CreateAudienceRequest {
-    pub name: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct CreateAudienceResponse {
-    pub id: String,
-    pub name: String,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeleteResponse {
     #[serde(default)]
     pub deleted: bool,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct SegmentRef {
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct TopicRef {
+    pub id: String,
+    /// "opt_in" or "opt_out"
+    pub subscription: String,
+}
+
 // ── Contact types ──────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct Contact {
     pub id: String,
     pub email: String,
@@ -302,12 +288,6 @@ pub struct Contact {
     /// Custom contact properties. Round-tripped from Resend's response when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub properties: Option<HashMap<String, Value>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct ContactList {
-    #[serde(default)]
-    pub data: Vec<Contact>,
 }
 
 #[derive(Debug, Serialize)]
@@ -323,6 +303,12 @@ pub struct CreateContactRequest {
     /// via the contact-property schema CRUD (`email-cli contact-property create ...`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<HashMap<String, Value>>,
+    /// Segments to add the contact to at create time. Each ref is `{id: "seg_..."}`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub segments: Option<Vec<SegmentRef>>,
+    /// Topics to subscribe the contact to at create time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topics: Option<Vec<TopicRef>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

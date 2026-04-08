@@ -101,7 +101,6 @@ fn command_name(command: &Command) -> String {
         Command::Inbox { .. } => "inbox",
         Command::Attachments { .. } => "attachments",
         Command::Domain { .. } => "domain",
-        Command::Audience { .. } => "audience",
         Command::Contact { .. } => "contact",
         Command::Batch { .. } => "batch",
         Command::ApiKey { .. } => "api-key",
@@ -220,12 +219,6 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             DomainCommand::Verify(args) => app.domain_verify(args)?,
             DomainCommand::Delete(args) => app.domain_delete(args)?,
             DomainCommand::Update(args) => app.domain_update(args)?,
-        },
-        Command::Audience { command } => match command {
-            AudienceCommand::List => app.audience_list()?,
-            AudienceCommand::Get(args) => app.audience_get(args)?,
-            AudienceCommand::Create(args) => app.audience_create(args)?,
-            AudienceCommand::Delete(args) => app.audience_delete(args)?,
         },
         Command::Contact { command } => match command {
             ContactCommand::List(args) => app.contact_list(args)?,

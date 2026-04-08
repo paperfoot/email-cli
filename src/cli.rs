@@ -53,12 +53,7 @@ pub enum Command {
         #[command(subcommand)]
         command: DomainCommand,
     },
-    /// Manage audiences
-    Audience {
-        #[command(subcommand)]
-        command: AudienceCommand,
-    },
-    /// Manage contacts within an audience
+    /// Manage Resend contacts (use `segment` to group them, `topic` for preferences)
     Contact {
         #[command(subcommand)]
         command: ContactCommand,
@@ -558,36 +553,6 @@ pub struct DomainUpdateArgs {
     pub click_tracking: Option<bool>,
 }
 
-// ── Audience commands ──────────────────────────────────────────────────────
-
-#[derive(Subcommand)]
-pub enum AudienceCommand {
-    #[command(visible_alias = "ls")]
-    List,
-    #[command(visible_alias = "show")]
-    Get(AudienceGetArgs),
-    #[command(visible_alias = "new")]
-    Create(AudienceCreateArgs),
-    #[command(visible_alias = "rm")]
-    Delete(AudienceDeleteArgs),
-}
-
-#[derive(Args)]
-pub struct AudienceGetArgs {
-    pub id: String,
-}
-
-#[derive(Args)]
-pub struct AudienceCreateArgs {
-    #[arg(long)]
-    pub name: String,
-}
-
-#[derive(Args)]
-pub struct AudienceDeleteArgs {
-    pub id: String,
-}
-
 // ── Contact commands ───────────────────────────────────────────────────────
 
 #[derive(Subcommand)]
@@ -605,21 +570,22 @@ pub enum ContactCommand {
 
 #[derive(Args)]
 pub struct ContactListArgs {
+    /// Number of contacts to return (1-100). Defaults to 50.
+    #[arg(long, default_value = "50")]
+    pub limit: usize,
+    /// Cursor: return contacts after this contact id.
     #[arg(long)]
-    pub audience: String,
+    pub after: Option<String>,
 }
 
 #[derive(Args)]
 pub struct ContactGetArgs {
-    #[arg(long)]
-    pub audience: String,
-    pub id: String,
+    /// Contact id or email address.
+    pub id_or_email: String,
 }
 
 #[derive(Args)]
 pub struct ContactCreateArgs {
-    #[arg(long)]
-    pub audience: String,
     #[arg(long)]
     pub email: String,
     #[arg(long)]
@@ -632,13 +598,16 @@ pub struct ContactCreateArgs {
     /// Property keys must be defined first via `email-cli contact-property create`.
     #[arg(long, value_name = "JSON")]
     pub properties: Option<String>,
+    /// Comma-separated segment ids to add this contact to at create time
+    /// (e.g. --segments seg_abc123,seg_def456).
+    #[arg(long, value_name = "ID,ID,...")]
+    pub segments: Option<String>,
 }
 
 #[derive(Args)]
 pub struct ContactUpdateArgs {
-    #[arg(long)]
-    pub audience: String,
-    pub id: String,
+    /// Contact id or email address.
+    pub id_or_email: String,
     #[arg(long)]
     pub first_name: Option<String>,
     #[arg(long)]
@@ -652,9 +621,8 @@ pub struct ContactUpdateArgs {
 
 #[derive(Args)]
 pub struct ContactDeleteArgs {
-    #[arg(long)]
-    pub audience: String,
-    pub id: String,
+    /// Contact id or email address.
+    pub id_or_email: String,
 }
 
 // ── Batch commands ─────────────────────────────────────────────────────────

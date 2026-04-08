@@ -182,19 +182,36 @@ Resend handles delivery. Email CLI handles the local operating model that agents
 | `domain verify <id>` | Trigger domain verification |
 | `domain delete <id>` | Delete a domain |
 | `domain update <id>` | Update tracking settings |
-| `contact list --audience <id>` | List contacts in an audience/segment |
-| `contact create --properties '{"k":"v"}'` | Create a contact (custom properties via `--properties`) |
-| `contact update` | Update a contact (`--properties` supported) |
-| `contact delete` | Delete a contact |
 | `batch send --file <path>` | Send batch emails from a JSON file |
 | `email list` | List sent emails via Resend GET /emails (each row includes `last_event` for polling) |
 | `api-key list` | List API keys |
 | `api-key create --name <n>` | Create an API key |
 | `api-key delete <id>` | Delete an API key |
 
-### Audiences and Segments
+### The Audience Section
 
-> Resend renamed Audiences to Segments in November 2025. The `audience` noun is kept for backward compatibility, but new integrations should use `segment`.
+In the Resend dashboard, "Audience" is the section name in the left sidebar. It groups four primitives — **Contacts**, **Properties**, **Segments**, and **Topics** — each with its own CLI command in email-cli:
+
+| Resend dashboard tab | email-cli command | Purpose |
+|---|---|---|
+| Contacts | `contact` | Individual email addresses |
+| Properties | `contact-property` | Typed custom-field schemas (e.g. `company`, `plan`) |
+| Segments | `segment` | Groupings of contacts (a contact can be in multiple segments) |
+| Topics | `topic` | User-facing subscription preferences for broadcasts |
+
+> The pre-November-2025 "Audiences as a grouping primitive" model has been replaced. Contacts are now flat — each contact can belong to zero, one, or multiple segments. There is no `audience` noun in this CLI; use `segment` instead.
+
+### Contacts
+
+| Command | What it does |
+|---|---|
+| `contact list` | List contacts (`--limit` 1-100, `--after <id>` for cursor pagination) |
+| `contact get <id_or_email>` | Get a contact by id or email (surfaces custom properties) |
+| `contact create --email <addr>` | Create a contact (`--first-name`, `--last-name`, `--unsubscribed`, `--properties '{"k":"v"}'`, `--segments seg1,seg2`) |
+| `contact update <id_or_email>` | Update contact fields (`--first-name`, `--last-name`, `--unsubscribed`, `--properties`) |
+| `contact delete <id_or_email>` | Delete a contact |
+
+### Segments
 
 | Command | What it does |
 |---|---|
@@ -202,11 +219,9 @@ Resend handles delivery. Email CLI handles the local operating model that agents
 | `segment get <id>` | Get segment details |
 | `segment create --name <n>` | Create a segment |
 | `segment delete <id>` | Delete a segment |
-| `segment contact-add --contact <id> --segment <id>` | Add a contact to a segment |
-| `segment contact-remove --contact <id> --segment <id>` | Remove a contact from a segment |
-| `segment contact-list --contact <id>` | List the segments a contact belongs to |
-| `audience list` _(deprecated)_ | Use `segment list` |
-| `audience create --name <n>` _(deprecated)_ | Use `segment create` |
+| `segment contact-add --contact <id_or_email> --segment <id>` | Add a contact to a segment |
+| `segment contact-remove --contact <id_or_email> --segment <id>` | Remove a contact from a segment |
+| `segment contact-list --contact <id_or_email>` | List the segments a contact belongs to |
 
 ### Custom Contact Properties
 
@@ -273,17 +288,18 @@ email-cli contact-property create --key plan --property-type string --fallback "
 
 # 2. Create a topic for granular unsubscribes
 email-cli topic create --name "Weekly Digest" --default-subscription opt_in
+# → returns topic id, e.g. top_xyz
 
 # 3. Create a segment to group contacts
 email-cli segment create --name "Beta users"
 # → returns segment id, e.g. seg_abc123
 
-# 4. Add a contact with custom properties
+# 4. Add a contact with custom properties and add them to the segment in one shot
 email-cli contact create \
-  --audience seg_abc123 \
   --email alice@example.com \
   --first-name Alice \
-  --properties '{"company":"Acme","plan":"pro"}'
+  --properties '{"company":"Acme","plan":"pro"}' \
+  --segments seg_abc123
 
 # 5. Subscribe the contact to the topic
 email-cli topic contact-set \
@@ -304,6 +320,8 @@ email-cli broadcast send brd_456
 # 7. Poll delivery status (replaces a webhook listener for the basic case)
 email-cli email list --limit 100
 ```
+
+> Note: `broadcast create --audience-id` is the parameter name Resend's Broadcasts API uses; in the new model it accepts a segment id. Resend keeps the legacy parameter name for backward compatibility.
 
 ### Why polling beats running a second webhook listener
 

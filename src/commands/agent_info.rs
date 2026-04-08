@@ -64,16 +64,12 @@ pub fn run(_format: Format) {
                 "domain delete | rm <id>": "Delete a domain",
                 "domain update <id>": "Update tracking settings (--open-tracking, --click-tracking)",
             },
-            "audiences_and_contacts": {
-                "audience list | ls": "List audiences (DEPRECATED by Resend Nov 2025 — use `segment` instead; backward-compat only)",
-                "audience get | show <id>": "Get audience details (deprecated)",
-                "audience create | new --name <name>": "Create an audience (deprecated)",
-                "audience delete | rm <id>": "Delete an audience (deprecated)",
-                "contact list | ls --audience <id>": "List contacts in an audience/segment",
-                "contact get | show --audience <id> <contact_id>": "Get contact details (surfaces properties)",
-                "contact create | new --audience <id> --email <email>": "Create contact (--first-name, --last-name, --unsubscribed, --properties '{\"k\":\"v\"}'). Property keys must be defined via `contact-property create` first.",
-                "contact update --audience <id> <contact_id>": "Update contact fields (--first-name, --last-name, --unsubscribed, --properties)",
-                "contact delete | rm --audience <id> <contact_id>": "Delete a contact",
+            "contacts": {
+                "contact list | ls": "List contacts (--limit 1-100, --after <id> for cursor pagination)",
+                "contact get | show <id_or_email>": "Get a contact by id or email (surfaces properties)",
+                "contact create | new --email <email>": "Create a contact (--first-name, --last-name, --unsubscribed, --properties '{\"k\":\"v\"}', --segments seg1,seg2). Property keys must be defined via `contact-property create` first.",
+                "contact update <id_or_email>": "Update contact fields (--first-name, --last-name, --unsubscribed, --properties)",
+                "contact delete | rm <id_or_email>": "Delete a contact",
             },
             "segments": {
                 "segment list | ls": "List segments (replaces deprecated `audience` noun)",

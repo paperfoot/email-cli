@@ -104,42 +104,39 @@ impl ResendClient {
         self.patch_json(&format!("/domains/{}", id), payload)
     }
 
-    // Audiences
-    pub fn list_audiences(&self) -> Result<AudienceList> {
-        self.get_json("/audiences", &[])
+    // Contacts (flat /contacts endpoints — Resend renamed Audiences to Segments
+    // in November 2025; new code uses these flat paths and treats segment grouping
+    // as a separate concern via the segments service.)
+    pub fn list_contacts_page(
+        &self,
+        limit: usize,
+        after: Option<&str>,
+    ) -> Result<ListResponse<Contact>> {
+        let mut query = vec![("limit", limit.to_string())];
+        if let Some(after) = after {
+            query.push(("after", after.to_string()));
+        }
+        self.get_json("/contacts", &query)
     }
 
-    pub fn get_audience(&self, id: &str) -> Result<Audience> {
-        self.get_json(&format!("/audiences/{}", id), &[])
+    pub fn get_contact(&self, contact_id_or_email: &str) -> Result<Contact> {
+        self.get_json(&format!("/contacts/{}", contact_id_or_email), &[])
     }
 
-    pub fn create_audience(&self, payload: &CreateAudienceRequest) -> Result<CreateAudienceResponse> {
-        self.post_json("/audiences", payload, None)
+    pub fn create_contact(&self, payload: &CreateContactRequest) -> Result<CreateContactResponse> {
+        self.post_json("/contacts", payload, None)
     }
 
-    pub fn delete_audience(&self, id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/audiences/{}", id))
+    pub fn update_contact(
+        &self,
+        contact_id_or_email: &str,
+        payload: &UpdateContactRequest,
+    ) -> Result<Contact> {
+        self.patch_json(&format!("/contacts/{}", contact_id_or_email), payload)
     }
 
-    // Contacts
-    pub fn list_contacts(&self, audience_id: &str) -> Result<ContactList> {
-        self.get_json(&format!("/audiences/{}/contacts", audience_id), &[])
-    }
-
-    pub fn get_contact(&self, audience_id: &str, contact_id: &str) -> Result<Contact> {
-        self.get_json(&format!("/audiences/{}/contacts/{}", audience_id, contact_id), &[])
-    }
-
-    pub fn create_contact(&self, audience_id: &str, payload: &CreateContactRequest) -> Result<CreateContactResponse> {
-        self.post_json(&format!("/audiences/{}/contacts", audience_id), payload, None)
-    }
-
-    pub fn update_contact(&self, audience_id: &str, contact_id: &str, payload: &UpdateContactRequest) -> Result<Contact> {
-        self.patch_json(&format!("/audiences/{}/contacts/{}", audience_id, contact_id), payload)
-    }
-
-    pub fn delete_contact(&self, audience_id: &str, contact_id: &str) -> Result<DeleteResponse> {
-        self.delete_request(&format!("/audiences/{}/contacts/{}", audience_id, contact_id))
+    pub fn delete_contact(&self, contact_id_or_email: &str) -> Result<DeleteResponse> {
+        self.delete_request(&format!("/contacts/{}", contact_id_or_email))
     }
 
     // Batch
