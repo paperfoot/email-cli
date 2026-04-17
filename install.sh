@@ -1,9 +1,9 @@
 #!/bin/sh
 # Install email-cli — downloads pre-built binary from GitHub Releases.
-# Usage: curl -fsSL https://raw.githubusercontent.com/199-biotechnologies/email-cli/main/install.sh | sh
+# Usage: curl -fsSL https://raw.githubusercontent.com/paperfoot/email-cli/main/install.sh | sh
 set -e
 
-REPO="199-biotechnologies/email-cli"
+REPO="paperfoot/email-cli"
 INSTALL_DIR="${INSTALL_DIR:-/usr/local/bin}"
 
 ARCH=$(uname -m)
