@@ -6,7 +6,7 @@
 
 <br />
 
-[![Star this repo](https://img.shields.io/github/stars/199-biotechnologies/email-cli?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/199-biotechnologies/email-cli/stargazers)
+[![Star this repo](https://img.shields.io/github/stars/paperfoot/email-cli?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/paperfoot/email-cli/stargazers)
 &nbsp;&nbsp;
 [![Follow @longevityboris](https://img.shields.io/badge/Follow_%40longevityboris-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/longevityboris)
 
@@ -42,7 +42,7 @@ You can also use it as a human. It works the same way.
 ### One-line install (pre-built binary, no Rust required)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/199-biotechnologies/email-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/paperfoot/email-cli/main/install.sh | sh
 ```
 
 ### Homebrew
@@ -450,7 +450,7 @@ Built by [Boris Djordjevic](https://github.com/longevityboris) at [199 Biotechno
 
 **If this is useful to you:**
 
-[![Star this repo](https://img.shields.io/github/stars/199-biotechnologies/email-cli?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/199-biotechnologies/email-cli/stargazers)
+[![Star this repo](https://img.shields.io/github/stars/paperfoot/email-cli?style=for-the-badge&logo=github&label=%E2%AD%90%20Star%20this%20repo&color=yellow)](https://github.com/paperfoot/email-cli/stargazers)
 &nbsp;&nbsp;
 [![Follow @longevityboris](https://img.shields.io/badge/Follow_%40longevityboris-000000?style=for-the-badge&logo=x&logoColor=white)](https://x.com/longevityboris)
 

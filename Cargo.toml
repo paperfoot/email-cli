@@ -4,8 +4,8 @@ version = "0.6.3"
 edition = "2024"
 description = "Agent-friendly email CLI for Resend"
 license = "MIT"
-repository = "https://github.com/199-biotechnologies/email-cli"
-homepage = "https://github.com/199-biotechnologies/email-cli"
+repository = "https://github.com/paperfoot/email-cli"
+homepage = "https://github.com/paperfoot/email-cli"
 keywords = ["email", "cli", "resend", "agent", "automation"]
 categories = ["command-line-utilities", "email"]
 
