@@ -275,7 +275,7 @@ Broadcasts are Resend's native campaign sending. Use these instead of `batch sen
 
 ## Mailing-list Workflows
 
-Email CLI is the Resend client for [`mailing-list-cli`](https://github.com/199-biotechnologies/mailing-list-cli) and any other tool that needs to wrap a complete mailing-list workflow on top of Resend. Three primitives matter:
+Email CLI is the Resend client for [`mailing-list-cli`](https://github.com/paperfoot/mailing-list-cli) and any other tool that needs to wrap a complete mailing-list workflow on top of Resend. Three primitives matter:
 
 1. **Segments** group contacts. (Audiences, in pre-November-2025 terms.)
 2. **Contact properties** are typed custom fields on each contact. Define the schema, then assign values.
@@ -344,7 +344,7 @@ Every outgoing email gets a unique `Message-ID` header (`<uuid@yourdomain.com>`)
 
 ## Agent Integration
 
-Email CLI follows the [agent-cli-framework](https://github.com/199-biotechnologies/agent-cli-framework) patterns. Any agent that speaks structured JSON can use it.
+Email CLI follows the [agent-cli-framework](https://github.com/paperfoot/agent-cli-framework) patterns. Any agent that speaks structured JSON can use it.
 
 ### Capability Discovery
 
