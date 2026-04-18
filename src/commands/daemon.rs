@@ -16,7 +16,7 @@ use objc2_foundation::{NSData, NSString, NSTimer};
 
 use crate::app::App;
 use crate::cli::DaemonArgs;
-use crate::helpers::{normalize_email, received_email_matches_account, send_desktop_notification};
+use crate::helpers::{normalize_email, send_desktop_notification};
 use crate::output::Format;
 
 const ICON_PNG: &[u8] = include_bytes!("../../assets/menubar_icon.png");
@@ -375,48 +375,13 @@ fn daemon_sync(app: &App, account_filter: Option<&str>) -> Result<()> {
     for account in accounts {
         let client = app.client_for_profile(&account.profile_name)?;
         let _ = app.sync_sent_account(&client, &account, 25);
-
-        let cursor = app.get_sync_cursor(&account.email, "received")?;
-        let mut after = None;
-        let mut newest_cursor = None;
-
-        loop {
-            let page = client.list_received_emails_page(25, after.as_deref())?;
-            if newest_cursor.is_none() {
-                newest_cursor = page.data.first().map(|item| item.id.clone());
-            }
-            let mut stop = false;
-            let mut last_id = None;
-
-            for item in page.data {
-                last_id = Some(item.id.clone());
-                if cursor.as_deref() == Some(item.id.as_str()) {
-                    stop = true;
-                    break;
-                }
-                let detail = client.get_received_email(&item.id)?;
-                if !received_email_matches_account(&detail, &account.email) {
-                    continue;
-                }
-                let from = detail.from.clone().unwrap_or_default();
-                let subject = detail.subject.clone().unwrap_or_default();
-                let message_id = app.store_received_message(&account, detail.clone())?;
-                app.store_received_attachments(message_id, &detail.attachments)?;
-
-                send_desktop_notification(
-                    &format!("New email to {}", account.email),
-                    &format!("From: {}\n{}", from, subject),
-                );
-            }
-
-            if stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
-                break;
-            }
-            after = last_id;
-        }
-
-        if let Some(cursor_id) = newest_cursor {
-            app.set_sync_cursor(&account.email, "received", &cursor_id)?;
+        let (_received, new_messages) =
+            app.sync_received_account_with_details(&client, &account, 25)?;
+        for (from, subject) in new_messages {
+            send_desktop_notification(
+                &format!("New email to {}", account.email),
+                &format!("From: {}\n{}", from, subject),
+            );
         }
     }
 
