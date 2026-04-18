@@ -4,7 +4,7 @@ use rusqlite::{OptionalExtension, params};
 use crate::app::App;
 use crate::helpers::{
     effective_received_bcc, effective_received_cc, effective_received_to, from_json,
-    header_references, header_string, normalize_email, normalize_timestamp, to_json,
+    header_references, header_string, normalize_timestamp, to_json,
 };
 use crate::models::*;
 
@@ -357,72 +357,6 @@ impl App {
             .context("message not found")
     }
 
-    /// Generic message list query. Currently superseded by more specific helpers
-    /// (`inbox_list`, `inbox_search`, `inbox_thread`); kept for callers that want
-    /// the raw shape.
-    #[allow(dead_code)]
-    pub fn list_messages(
-        &self,
-        account: Option<&str>,
-        limit: usize,
-        unread_only: bool,
-    ) -> Result<Vec<MessageRecord>> {
-        let sql = match (account, unread_only) {
-            (Some(_), true) => {
-                "
-                SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                       reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at, archived
-                FROM messages
-                WHERE account_email = ?1 AND is_read = 0
-                ORDER BY created_at DESC
-                LIMIT ?2
-                "
-            }
-            (Some(_), false) => {
-                "
-                SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                       reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at, archived
-                FROM messages
-                WHERE account_email = ?1
-                ORDER BY created_at DESC
-                LIMIT ?2
-                "
-            }
-            (None, true) => {
-                "
-                SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                       reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at, archived
-                FROM messages
-                WHERE is_read = 0
-                ORDER BY created_at DESC
-                LIMIT ?1
-                "
-            }
-            (None, false) => {
-                "
-                SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
-                       reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at, archived
-                FROM messages
-                ORDER BY created_at DESC
-                LIMIT ?1
-                "
-            }
-        };
-        let mut stmt = self.conn.prepare(sql)?;
-        let rows = match (account, unread_only) {
-            (Some(account), _) => {
-                stmt.query_map(params![normalize_email(account), limit as i64], map_message)?
-            }
-            (None, _) => stmt.query_map(params![limit as i64], map_message)?,
-        };
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
-    }
-
     pub fn list_all_drafts(&self) -> Result<Vec<DraftRecord>> {
         let mut stmt = self.conn.prepare(
             "
@@ -738,16 +672,6 @@ impl App {
         let _ = self.conn.execute(
             "INSERT INTO command_log (command, args) VALUES (?1, ?2)",
             rusqlite::params![command, args],
-        );
-    }
-
-    /// Currently the dispatcher does not roll up exit codes per-command, but the schema
-    /// supports it; kept for the daemon and future invocations that want to record exit.
-    #[allow(dead_code)]
-    pub fn log_command_exit(&self, command: &str, exit_code: i32) {
-        let _ = self.conn.execute(
-            "UPDATE command_log SET exit_code = ?1 WHERE id = (SELECT MAX(id) FROM command_log WHERE command = ?2)",
-            rusqlite::params![exit_code, command],
         );
     }
 
