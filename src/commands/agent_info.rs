@@ -120,6 +120,9 @@ pub fn run(_format: Format) {
             },
             "daemon": {
                 "daemon": "Run as menu bar daemon with sync and notifications (--account, --interval)",
+                "autostart install": "Install LaunchAgent so the daemon runs at login (--account, --interval). macOS only.",
+                "autostart uninstall": "Remove the LaunchAgent",
+                "autostart status": "Show LaunchAgent installed/loaded state",
             },
             "meta": {
                 "update": "Self-update from GitHub Releases (--check to check only)",

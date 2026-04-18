@@ -95,6 +95,7 @@ fn command_name(command: &Command) -> String {
         Command::Reply(_) => "reply",
         Command::Forward(_) => "forward",
         Command::Daemon(_) => "daemon",
+        Command::Autostart { .. } => "autostart",
         Command::Update { .. } => "update",
         Command::Log(_) => "log",
         Command::Sync(_) => "sync",
@@ -183,6 +184,11 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
         Command::Reply(args) => app.reply(args)?,
         Command::Forward(args) => app.forward(args)?,
         Command::Daemon(args) => app.daemon(args)?,
+        Command::Autostart { command } => match command {
+            AutostartCommand::Install(args) => app.autostart_install(args)?,
+            AutostartCommand::Uninstall => app.autostart_uninstall()?,
+            AutostartCommand::Status(args) => app.autostart_status(args)?,
+        },
         Command::Update { check } => app.update(check)?,
         Command::Log(args) => {
             let entries = app.get_command_log(args.limit)?;

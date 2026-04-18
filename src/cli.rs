@@ -46,6 +46,11 @@ pub enum Command {
     Forward(ForwardArgs),
     /// Run as a menu bar daemon with notifications
     Daemon(DaemonArgs),
+    /// Install/remove a LaunchAgent that runs the daemon at login (macOS)
+    Autostart {
+        #[command(subcommand)]
+        command: AutostartCommand,
+    },
     Draft {
         #[command(subcommand)]
         command: DraftCommand,
@@ -286,6 +291,29 @@ pub struct DaemonArgs {
     #[arg(long, default_value = "60")]
     pub interval: u64,
 }
+
+#[derive(Subcommand)]
+pub enum AutostartCommand {
+    /// Install LaunchAgent and load it now
+    Install(AutostartInstallArgs),
+    /// Remove the LaunchAgent
+    Uninstall,
+    /// Show LaunchAgent state
+    Status(AutostartStatusArgs),
+}
+
+#[derive(Args)]
+pub struct AutostartInstallArgs {
+    /// Account to monitor (default: all accounts)
+    #[arg(long)]
+    pub account: Option<String>,
+    /// Daemon poll interval in seconds
+    #[arg(long, default_value = "60")]
+    pub interval: u64,
+}
+
+#[derive(Args)]
+pub struct AutostartStatusArgs {}
 
 #[derive(Args)]
 pub struct ForwardArgs {
