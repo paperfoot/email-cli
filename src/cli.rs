@@ -252,6 +252,12 @@ pub struct ReplyArgs {
     /// Reply to all recipients (preserves CC)
     #[arg(long)]
     pub all: bool,
+    /// Additional CC recipients (merged with --all's computed CC, deduped)
+    #[arg(long)]
+    pub cc: Vec<String>,
+    /// BCC recipients
+    #[arg(long)]
+    pub bcc: Vec<String>,
     #[arg(long)]
     pub text: Option<String>,
     #[arg(long)]
