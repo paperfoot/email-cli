@@ -25,7 +25,7 @@ pub fn run(_format: Format) {
             },
             "compose": {
                 "send": "Send email (--to, --subject, --text/--html, --cc, --bcc, --attach, --reply-to-msg <id> for threading)",
-                "reply <message_id>": "Reply to a message (--all for Reply All, --text/--html, --attach)",
+                "reply <message_id>": "Reply to a message (--all for Reply All, --cc, --bcc, --text/--html, --attach)",
                 "forward <message_id>": "Forward a message (--to, --cc, --bcc, --text for preamble)",
                 "draft create | new": "Create local draft (same flags as send, plus --reply-to)",
                 "draft list | ls": "List drafts (--account)",

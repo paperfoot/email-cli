@@ -56,7 +56,7 @@ impl App {
         };
         ensure_reply_account_matches(&target, &account)?;
 
-        let (to, cc) = if args.all {
+        let (to, mut cc) = if args.all {
             reply_all_recipients(&target, &account.email)
         } else {
             (reply_recipients(&target)?, Vec::new())
@@ -65,12 +65,24 @@ impl App {
             bail!("no recipients for reply (all addresses resolved to self)");
         }
 
+        let mut seen: std::collections::HashSet<String> =
+            to.iter().chain(cc.iter()).cloned().collect();
+        for addr in normalize_emails(&args.cc) {
+            if !addr.is_empty() && seen.insert(addr.clone()) {
+                cc.push(addr);
+            }
+        }
+        let bcc: Vec<String> = normalize_emails(&args.bcc)
+            .into_iter()
+            .filter(|addr| !addr.is_empty() && seen.insert(addr.clone()))
+            .collect();
+
         let subject = reply_subject(&target.subject);
         let compose = ResolvedCompose {
             account,
             to,
             cc,
-            bcc: Vec::new(),
+            bcc,
             subject,
             text: read_optional_content(args.text, args.text_file)?,
             html: read_optional_content(args.html, args.html_file)?,
