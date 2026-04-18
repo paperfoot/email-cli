@@ -14,10 +14,6 @@ Thanks for your interest in contributing.
    ```bash
    cargo build
    ```
-4. Run tests:
-   ```bash
-   cargo test
-   ```
 
 ## Development Requirements
 
@@ -38,7 +34,7 @@ Thanks for your interest in contributing.
 
 - Keep PRs focused on a single change
 - Include a clear description of what the PR does and why
-- Make sure `cargo check`, `cargo clippy`, and `cargo test` pass
+- Make sure `cargo check` and `cargo clippy` pass
 - Update documentation if your change affects user-facing behavior
 
 ## Code Style
