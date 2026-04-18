@@ -677,16 +677,3 @@ pub fn remove_draft_attachment_snapshot(base_dir: &Path, draft_id: &str) -> Resu
     Ok(())
 }
 
-/// Reserved for callers that want a stable per-payload idempotency key. Today the
-/// outbox path generates UUIDs inline, but the helper is kept for future use.
-#[allow(dead_code)]
-pub fn build_idempotency_key(request: &SendEmailRequest) -> Result<String> {
-    let _ = request;
-    Ok(format!("email-cli-{}", uuid::Uuid::new_v4()))
-}
-
-#[allow(dead_code)]
-pub fn print_json<T: Serialize>(value: &T) -> Result<()> {
-    println!("{}", serde_json::to_string_pretty(value)?);
-    Ok(())
-}
