@@ -125,6 +125,30 @@ Resend handles delivery. Email CLI handles the local operating model: read track
 
 Every outgoing email gets a unique `Message-ID`; `reply` and `send --reply-to-msg` set `In-Reply-To` and `References` per RFC 5322, so threads display correctly in Gmail, Outlook, and Apple Mail.
 
+## Menu Bar Daemon (macOS)
+
+`email-cli daemon` runs in the background, syncs your inbox on a timer, and shows unread count in the menu bar. Native `UNUserNotificationCenter` banners fire on incoming mail -- including from `sync --notify` and `webhook listen --notify`, even if the daemon isn't running.
+
+```bash
+email-cli daemon                      # foreground, default 60s interval
+email-cli daemon --interval 30        # 30s poll
+email-cli daemon --account you@x.com  # single account
+```
+
+### Run at login
+
+```bash
+email-cli autostart install           # installs ~/Library/LaunchAgents/ai.paperfoot.email-cli.daemon.plist
+email-cli autostart status            # check if loaded
+email-cli autostart uninstall         # remove
+```
+
+The LaunchAgent loads immediately (no reboot needed) and restarts the daemon automatically if it exits unexpectedly. Logs go to `/tmp/email-cli-daemon.log`.
+
+### How notifications work
+
+The first time a notification fires, email-cli extracts an embedded codesigned `.app` bundle to `~/Library/Application Support/email-cli/EmailCLI.app/`. macOS 26+ requires this bundle for `UNUserNotificationCenter` to work -- raw binaries fail `TCC` silently. If the bundle can't be extracted, email-cli falls back to `osascript`.
+
 ## Commands
 
 Email CLI groups its commands by area:
@@ -133,7 +157,7 @@ Email CLI groups its commands by area:
 - **Identity** -- `profile`, `account`, `signature`, `domain`, `api-key`
 - **Audience (mailing lists)** -- `contact`, `segment`, `contact-property`, `topic`, `broadcast`
 - **Delivery** -- `outbox` (durable send queue), `webhook listen`, `events`, `email list`, `batch send`
-- **Daemon** -- `daemon` (macOS menu bar with native notifications and live sync)
+- **Daemon** -- `daemon`, `autostart` (macOS menu bar, native notifications, LaunchAgent autostart)
 - **Agent tooling** -- `agent-info`, `skill install`, `completions`
 - **Ops** -- `update` (self-update), `log` (command audit trail)
 
