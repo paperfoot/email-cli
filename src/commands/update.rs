@@ -16,7 +16,7 @@ impl App {
         let current = env!("CARGO_PKG_VERSION");
 
         let updater = self_update::backends::github::Update::configure()
-            .repo_owner("199-biotechnologies")
+            .repo_owner("paperfoot")
             .repo_name("email-cli")
             .bin_name("email-cli")
             .current_version(current)
