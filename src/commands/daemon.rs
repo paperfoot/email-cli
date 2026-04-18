@@ -131,6 +131,12 @@ impl App {
         let account_filter = args.account.clone();
         let db_path = self.db_path.clone();
 
+        // Ensure the notification bundle is extracted so UNUserNotificationCenter
+        // (not osascript) fires for incoming-mail alerts.
+        if let Err(e) = crate::bundle::ensure_installed() {
+            eprintln!("daemon: warning — notification bundle install failed: {e}");
+        }
+
         let initial_unread = self.count_unread(account_filter.as_deref()).unwrap_or(0);
         let account_label = account_filter
             .as_deref()

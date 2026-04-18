@@ -165,7 +165,8 @@ pub fn send_desktop_notification(title: &str, body: &str) {
     #[cfg(target_os = "macos")]
     {
         // Use the signed .app bundle for native macOS notifications.
-        // Falls back to osascript if the bundle isn't found.
+        // Falls back to osascript if the bundle can't be extracted or launched.
+        let _ = crate::bundle::ensure_installed();
         let helper = notification_helper_path();
 
         if helper.exists() {
@@ -196,22 +197,22 @@ pub fn send_desktop_notification(title: &str, body: &str) {
 
 #[cfg(target_os = "macos")]
 fn notification_helper_path() -> std::path::PathBuf {
-    // Search order: next to binary, data dir, repo assets
-    let candidates = [
-        std::env::current_exe().ok().and_then(|exe| {
-            exe.parent()
-                .map(|dir| dir.join("EmailCLI.app/Contents/MacOS/email-cli-notify"))
-        }),
-        Some(
-            data_local_dir()
-                .unwrap_or(std::path::PathBuf::from("."))
-                .join("email-cli/EmailCLI.app/Contents/MacOS/email-cli-notify"),
-        ),
-    ];
-    for candidate in candidates.into_iter().flatten() {
-        if candidate.exists() {
-            return candidate;
+    // Preferred: the bundle extracted into the user's data dir (written by
+    // `bundle::ensure_installed()` on first notification).
+    if let Some(dir) = data_local_dir() {
+        let p = dir.join("email-cli/EmailCLI.app/Contents/MacOS/email-cli-notify");
+        if p.exists() {
+            return p;
         }
+    }
+    // Developer convenience: running from target/debug or target/release next to
+    // an unpacked bundle.
+    if let Some(exe) = std::env::current_exe().ok().and_then(|exe| {
+        exe.parent()
+            .map(|dir| dir.join("EmailCLI.app/Contents/MacOS/email-cli-notify"))
+    }) && exe.exists()
+    {
+        return exe;
     }
     // Fallback — won't exist, triggers osascript path
     std::path::PathBuf::from(

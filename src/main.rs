@@ -1,4 +1,5 @@
 mod app;
+mod bundle;
 mod cli;
 mod commands;
 mod db;
