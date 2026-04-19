@@ -1,5 +1,7 @@
 use anyhow::{Result, bail};
 use std::collections::BTreeSet;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::app::App;
 use crate::cli::SyncArgs;
@@ -7,6 +9,32 @@ use crate::helpers::{normalize_email, received_email_matches_account, send_deskt
 use crate::models::{AccountRecord, SyncSummary};
 use crate::output::{Format, print_success_or};
 use crate::resend::ResendClient;
+
+/// Coarse progress reporter, read by the daemon's status label.
+/// `(done, total)` across the most recent sync invocation.
+static SYNC_PROGRESS: OnceLock<(AtomicUsize, AtomicUsize)> = OnceLock::new();
+
+fn progress() -> &'static (AtomicUsize, AtomicUsize) {
+    SYNC_PROGRESS.get_or_init(|| (AtomicUsize::new(0), AtomicUsize::new(0)))
+}
+
+/// Read the current `(done, total)` progress of the most recent sync.
+pub fn sync_progress() -> (usize, usize) {
+    let p = progress();
+    (p.0.load(Ordering::Relaxed), p.1.load(Ordering::Relaxed))
+}
+
+fn set_progress(done: usize, total: usize) {
+    let p = progress();
+    p.0.store(done, Ordering::Relaxed);
+    p.1.store(total, Ordering::Relaxed);
+}
+
+fn inc_done() {
+    progress().0.fetch_add(1, Ordering::Relaxed);
+}
+
+type AccountSyncOutcome = (AccountRecord, Result<(usize, usize, Vec<(String, String)>)>);
 
 impl App {
     pub fn sync(&self, args: SyncArgs) -> Result<()> {
@@ -46,26 +74,67 @@ impl App {
             .map(|account| account.profile_name.clone())
             .collect::<BTreeSet<_>>();
 
+        set_progress(0, accounts.len());
+
+        // Fan out: one thread per account. Each thread opens its own SQLite
+        // connection (rusqlite::Connection is !Sync). WAL mode handles the
+        // concurrent writes via its internal write lock.
+        let db_path = self.db_path.clone();
+        let handles: Vec<_> = accounts
+            .into_iter()
+            .map(|account| {
+                let db_path = db_path.clone();
+                std::thread::spawn(move || -> AccountSyncOutcome {
+                    let result = (|| -> Result<_> {
+                        let app = App::new(db_path, Format::Json)?;
+                        let client = app.client_for_profile(&account.profile_name)?;
+                        let sent = app.sync_sent_account(&client, &account, limit)?;
+                        let (received, new_messages) =
+                            app.sync_received_account_with_details(&client, &account, limit)?;
+                        Ok((sent, received, new_messages))
+                    })();
+                    inc_done();
+                    (account, result)
+                })
+            })
+            .collect();
+
         let mut summary = SyncSummary {
             profiles: unique_profiles.len(),
             sent_messages: 0,
             received_messages: 0,
         };
+        let mut errors: Vec<(String, String)> = Vec::new();
 
-        for account in accounts {
-            let client = self.client_for_profile(&account.profile_name)?;
-            summary.sent_messages += self.sync_sent_account(&client, &account, limit)?;
-            let (received, new_messages) =
-                self.sync_received_account_with_details(&client, &account, limit)?;
-            summary.received_messages += received;
-
-            if notify && !new_messages.is_empty() {
-                for (from, subject) in &new_messages {
-                    send_desktop_notification(
-                        &format!("New email to {}", account.email),
-                        &format!("From: {}\n{}", from, subject),
-                    );
+        for handle in handles {
+            match handle.join() {
+                Ok((account, Ok((sent, received, new_messages)))) => {
+                    summary.sent_messages += sent;
+                    summary.received_messages += received;
+                    if notify {
+                        for (from, subject) in &new_messages {
+                            send_desktop_notification(
+                                &format!("New email to {}", account.email),
+                                &format!("From: {}\n{}", from, subject),
+                            );
+                        }
+                    }
                 }
+                Ok((account, Err(e))) => {
+                    errors.push((account.email, e.to_string()));
+                }
+                Err(_) => {
+                    errors.push(("?".to_string(), "sync thread panicked".to_string()));
+                }
+            }
+        }
+
+        // Reset progress so the daemon's status label stops showing N/M.
+        set_progress(0, 0);
+
+        if matches!(self.format, Format::Human) {
+            for (email, err) in &errors {
+                eprintln!("sync error ({}): {}", email, err);
             }
         }
 
@@ -86,6 +155,11 @@ impl App {
         page_size: usize,
     ) -> Result<usize> {
         let cursor = self.get_sync_cursor(&account.email, "sent")?;
+        // On cold start (no cursor yet) we only pull one page, then set the
+        // cursor. Older history stays on Resend and can be backfilled by the
+        // user explicitly if they want it. Prevents a cold start from walking
+        // thousands of messages.
+        let is_cold_start = cursor.is_none();
         let mut after = None;
         let mut newest_cursor = None;
         let mut total = 0usize;
@@ -116,7 +190,11 @@ impl App {
                 }
             }
 
-            if stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
+            if is_cold_start
+                || stop
+                || !page.has_more.unwrap_or(false)
+                || last_id.is_none()
+            {
                 break;
             }
             after = last_id;
@@ -137,6 +215,7 @@ impl App {
         page_size: usize,
     ) -> Result<(usize, Vec<(String, String)>)> {
         let cursor = self.get_sync_cursor(&account.email, "received")?;
+        let is_cold_start = cursor.is_none();
         let mut after = None;
         let mut newest_cursor = None;
         let mut total = 0usize;
@@ -168,7 +247,11 @@ impl App {
                 total += 1;
             }
 
-            if stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
+            if is_cold_start
+                || stop
+                || !page.has_more.unwrap_or(false)
+                || last_id.is_none()
+            {
                 break;
             }
             after = last_id;

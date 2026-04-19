@@ -112,10 +112,18 @@ fn refresh_display(syncing: bool) {
 
     if let Some(ui) = UI.get() {
         let mtm = unsafe { MainThreadMarker::new_unchecked() };
-        update_status_display(&ui.status_item, &ui.icon, count, syncing, mtm);
+        let (done, total) = crate::commands::sync::sync_progress();
+        update_status_display(&ui.status_item, &ui.icon, count, syncing, done, total, mtm);
 
         let text = if syncing {
-            format!("Syncing\u{2026} \u{00b7} {}", ui.account_label)
+            if total > 0 {
+                format!(
+                    "Syncing {}/{} \u{00b7} {}",
+                    done, total, ui.account_label
+                )
+            } else {
+                format!("Syncing\u{2026} \u{00b7} {}", ui.account_label)
+            }
         } else {
             format!("{} unread \u{00b7} {}", count, ui.account_label)
         };
@@ -207,7 +215,7 @@ impl App {
         let status_item = status_bar.statusItemWithLength(-1.0);
 
         let icon = load_icon(ICON_PNG, mtm);
-        update_status_display(&status_item, &icon, initial_unread, false, mtm);
+        update_status_display(&status_item, &icon, initial_unread, false, 0, 0, mtm);
 
         // ── Menu ───────────────────────────────────────────────────────────
         let menu = NSMenu::new(mtm);
@@ -323,13 +331,19 @@ fn update_status_display(
     icon: &NSImage,
     unread: usize,
     syncing: bool,
+    sync_done: usize,
+    sync_total: usize,
     mtm: MainThreadMarker,
 ) {
     if let Some(button) = item.button(mtm) {
         button.setImage(Some(icon));
         // Fixed-width badge: pad single digits with a leading space for consistent width
         let title = if syncing {
-            " \u{21BB} ".to_string() // ↻ with padding
+            if sync_total > 0 {
+                format!(" {}/{} ", sync_done, sync_total)
+            } else {
+                " \u{21BB} ".to_string() // ↻ with padding
+            }
         } else if unread > 99 {
             "99+".to_string()
         } else if unread > 0 {
