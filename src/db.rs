@@ -214,11 +214,16 @@ pub fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRecord> {
     })
 }
 
-/// Lightweight row mapper for list/search/thread — skips body fields to save tokens.
-/// Column order: id, remote_id, direction, account_email, from_addr, to_json, cc_json,
-///               subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived
+/// Lightweight row mapper for list/search/thread — skips full bodies, but
+/// derives a short `text_preview` so UIs can render two-line rows (Gmail style)
+/// without a second round-trip. Column order:
+///   id, remote_id, direction, account_email, from_addr, to_json, cc_json,
+///   subject, rfc_message_id, in_reply_to, last_event, is_read, created_at,
+///   archived, text_body
 pub fn map_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::models::MessageSummary> {
     use crate::helpers::from_json;
+    let body: Option<String> = row.get(14)?;
+    let text_preview = body.as_deref().map(build_preview).filter(|s| !s.is_empty());
     Ok(crate::models::MessageSummary {
         id: row.get(0)?,
         remote_id: row.get(1)?,
@@ -234,7 +239,24 @@ pub fn map_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::models::M
         is_read: row.get::<_, i64>(11)? == 1,
         created_at: row.get(12)?,
         archived: row.get::<_, i64>(13)? == 1,
+        text_preview,
     })
+}
+
+/// Collapse a text body into a single-line snippet suitable for list rows.
+/// Strips blockquotes, leading quoted lines, and collapses whitespace.
+fn build_preview(text: &str) -> String {
+    let mut out = String::with_capacity(200);
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() { continue; }
+        if trimmed.starts_with('>') { continue; }      // quoted reply
+        if trimmed.starts_with("--") && trimmed.len() < 6 { break; }  // signature delim
+        if !out.is_empty() { out.push(' '); }
+        out.push_str(trimmed);
+        if out.chars().count() > 200 { break; }
+    }
+    out.chars().take(160).collect::<String>().trim().to_string()
 }
 
 pub fn map_draft(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {

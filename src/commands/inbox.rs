@@ -81,10 +81,12 @@ impl App {
         param_vals.push(Box::new(fetch_limit));
 
         let where_clause = conditions.join(" AND ");
-        // Summary columns only — no text_body/html_body (use inbox read for full body)
+        // Summary columns + text_body for a one-line preview snippet. The mapper
+        // distils the body down to ~160 chars; no html_body to keep payload small.
         let sql = format!(
             "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json,
-                    subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived
+                    subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived,
+                    text_body
              FROM messages WHERE {} ORDER BY created_at DESC, id DESC LIMIT ?",
             where_clause
         );
@@ -398,10 +400,12 @@ impl App {
         // 3. Find all messages whose rfc_message_id OR in_reply_to is in thread_ids
         let placeholders: Vec<String> = (1..=thread_ids.len()).map(|i| format!("?{}", i)).collect();
         let ph = placeholders.join(",");
-        // Summary columns — no bodies for thread list
+        // Summary columns + text_body so callers can render each thread
+        // message with a one-line preview alongside the sender/subject.
         let sql = format!(
             "SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json,
-                    subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived
+                    subject, rfc_message_id, in_reply_to, last_event, is_read, created_at, archived,
+                    text_body
              FROM messages
              WHERE rfc_message_id IN ({ph}) OR in_reply_to IN ({ph})
              ORDER BY created_at ASC"
@@ -432,10 +436,11 @@ impl App {
     }
 
     pub fn inbox_search(&self, args: InboxSearchArgs) -> Result<()> {
-        // Summary columns — no bodies for search results
+        // Summary columns + text_body so search results show a preview snippet.
         let sql = if args.account.is_some() {
             "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json,
-                    m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived
+                    m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived,
+                    m.text_body
              FROM messages m
              JOIN messages_fts fts ON m.id = fts.rowid
              WHERE messages_fts MATCH ?1 AND m.account_email = ?2
@@ -443,7 +448,8 @@ impl App {
              LIMIT ?3"
         } else {
             "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json,
-                    m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived
+                    m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived,
+                    m.text_body
              FROM messages m
              JOIN messages_fts fts ON m.id = fts.rowid
              WHERE messages_fts MATCH ?1

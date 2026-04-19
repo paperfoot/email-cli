@@ -46,7 +46,8 @@ pub struct MessageRecord {
     pub archived: bool,
 }
 
-/// Lightweight message for list/search/thread — no text_body/html_body to save tokens
+/// Lightweight message for list/search/thread — no full bodies, just a short
+/// text preview so UIs can render Gmail-style two-line rows.
 #[derive(Debug, Serialize, Clone)]
 pub struct MessageSummary {
     pub id: i64,
@@ -63,6 +64,8 @@ pub struct MessageSummary {
     pub is_read: bool,
     pub created_at: String,
     pub archived: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text_preview: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
