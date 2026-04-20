@@ -5,6 +5,7 @@ use serde_json::json;
 use crate::app::App;
 use crate::cli::{ProfileAddArgs, ProfileTestArgs};
 use crate::helpers::resolve_api_key;
+use crate::keychain::{self, KEYCHAIN_SENTINEL};
 use crate::models::ProfileRecord;
 use crate::output::print_success_or;
 
@@ -17,6 +18,16 @@ impl App {
             &args.api_key_name,
         )?;
 
+        // On macOS, store the real key in the Keychain and write a
+        // sentinel into SQLite. On other platforms, fall back to the
+        // legacy SQLite-resident key.
+        let stored = if keychain::is_available() {
+            keychain::store(&args.name, &api_key)?;
+            KEYCHAIN_SENTINEL.to_string()
+        } else {
+            api_key
+        };
+
         self.conn.execute(
             "
             INSERT INTO profiles (name, api_key, updated_at)
@@ -25,16 +36,18 @@ impl App {
                 api_key = excluded.api_key,
                 updated_at = CURRENT_TIMESTAMP
             ",
-            params![args.name, api_key],
+            params![args.name, stored],
         )?;
 
         let data = json!({
             "name": args.name,
             "status": "saved",
+            "storage": if keychain::is_available() { "keychain" } else { "sqlite" },
             "db_path": self.db_path.display().to_string(),
         });
         print_success_or(self.format, &data, |_d| {
-            println!("saved profile {}", args.name);
+            let where_ = if keychain::is_available() { "keychain" } else { "sqlite" };
+            println!("saved profile {} ({})", args.name, where_);
         });
 
         Ok(())

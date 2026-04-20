@@ -6,6 +6,7 @@ mod db;
 mod error;
 mod helpers;
 mod http;
+mod keychain;
 mod models;
 mod output;
 mod resend;

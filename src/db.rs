@@ -330,7 +330,19 @@ pub fn map_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentRec
 
 impl App {
     pub fn client_for_profile(&self, name: &str) -> Result<crate::resend::ResendClient> {
-        let api_key: String = self
+        let api_key = self.resolve_profile_api_key(name)?;
+        crate::resend::ResendClient::new(api_key)
+    }
+
+    /// Resolve the Resend API key for a profile.
+    ///
+    /// On macOS, keys normally live in the Keychain and the SQLite
+    /// row holds a sentinel. If the SQLite row still contains a
+    /// plaintext key (legacy pre-keychain install), it is silently
+    /// migrated to the Keychain and the SQLite row updated to the
+    /// sentinel — one migration per profile, at first use.
+    pub fn resolve_profile_api_key(&self, name: &str) -> Result<String> {
+        let stored: String = self
             .conn
             .query_row(
                 "SELECT api_key FROM profiles WHERE name = ?1",
@@ -338,7 +350,23 @@ impl App {
                 |row| row.get(0),
             )
             .with_context(|| format!("profile {} not found", name))?;
-        crate::resend::ResendClient::new(api_key)
+
+        if stored == crate::keychain::KEYCHAIN_SENTINEL {
+            return crate::keychain::load(name);
+        }
+
+        // Legacy SQLite-resident key. On macOS, migrate to Keychain on
+        // first use and overwrite the row with the sentinel. On other
+        // platforms, just return the stored value.
+        if crate::keychain::is_available() {
+            crate::keychain::store(name, &stored)?;
+            self.conn.execute(
+                "UPDATE profiles SET api_key = ?1, updated_at = CURRENT_TIMESTAMP
+                 WHERE name = ?2",
+                params![crate::keychain::KEYCHAIN_SENTINEL, name],
+            )?;
+        }
+        Ok(stored)
     }
 
     pub fn list_accounts(&self) -> Result<Vec<AccountRecord>> {
