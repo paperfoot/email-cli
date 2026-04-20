@@ -21,7 +21,11 @@
 
 A single binary that gives your AI agent a real email address. Send, receive, reply, draft, sync, and manage contacts, broadcasts, segments, and topics through Resend -- all from the command line. No IMAP. No browser inbox. No MCP server. Just a local SQLite mailbox and a command surface agents discover at runtime.
 
-[Why](#why) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Agent Integration](#agent-integration) | [Configuration](#configuration) | [Contributing](#contributing)
+Works inside any agent harness that can invoke a CLI: Claude Code, Cursor, Warp, Codex, Gemini CLI, plain shell scripts. One Resend API key is the only external requirement.
+
+Pair it with [**Minimail**](https://github.com/paperfoot/minimail-mac) — a macOS menu bar GUI that shells out to this CLI — if you also want a five-second visual peek at the inbox.
+
+[Why](#why) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Agent Integration](#agent-integration) | [Companion App](#companion-app-minimail) | [Configuration](#configuration) | [Contributing](#contributing)
 
 </div>
 
@@ -32,10 +36,11 @@ AI agents need email. The existing options are bad:
 - **IMAP/SMTP** requires complex server configuration, credential management, and connection handling. Agents struggle with it.
 - **Email APIs** work for sending, but agents need a local mailbox to track threads, drafts, and read state.
 - **Browser-based inboxes** are not scriptable. Agents cannot use them.
+- **MCP servers** add a network hop and a config burden per harness. Overkill when a signed binary already works.
 
 Email CLI wraps the [Resend API](https://resend.com) in a local-first CLI. Your agent gets a verified email address, a local SQLite mailbox, and structured JSON output with semantic exit codes. It calls `agent-info` once to learn every command, then works from memory.
 
-It works just as well for humans.
+It works just as well for humans — and pairs with [Minimail](https://github.com/paperfoot/minimail-mac) if you want a GUI.
 
 ## Install
 
@@ -220,6 +225,20 @@ email-cli skill install
 ```
 
 Writes a skill file to `~/.claude/skills/email-cli/`, `~/.codex/skills/email-cli/`, and `~/.gemini/skills/email-cli/`. The skill tells agents the CLI exists and to run `agent-info` for full details.
+
+## Companion App: Minimail
+
+Email CLI is the agent-facing half of a two-component product. The human-facing half is [**Minimail**](https://github.com/paperfoot/minimail-mac) — a macOS 26 menu bar app that shells out to this CLI for every operation.
+
+|  | Email CLI | Minimail |
+|---|---|---|
+| Interface | Terminal, structured JSON | SwiftUI popover, 420×580 |
+| Audience | AI agents, automation, scripting | Humans who want a quick visual peek |
+| Platforms | macOS, Linux, Windows | macOS 26 only |
+| License | MIT | Proprietary (paid app, coming soon) |
+| Required? | Yes, for everything | No — purely optional |
+
+Minimail makes no network calls of its own; it runs `email-cli send ... --json` and friends, then renders the output. Every feature in the GUI maps to a subcommand here. Install either, both, or neither — the CLI is the product and the GUI is a convenience layer.
 
 ## Configuration
 
