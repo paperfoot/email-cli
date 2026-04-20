@@ -44,6 +44,11 @@ pub struct MessageRecord {
     pub created_at: String,
     pub synced_at: String,
     pub archived: bool,
+    pub starred: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_unsubscribe: Option<String>,
 }
 
 /// Lightweight message for list/search/thread — no full bodies, just a short
@@ -66,6 +71,18 @@ pub struct MessageSummary {
     pub archived: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_preview: Option<String>,
+    pub starred: bool,
+    /// ISO 8601 timestamp in UTC — messages are hidden from the default inbox
+    /// list until their snoozed_until passes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snoozed_until: Option<String>,
+    /// Raw `List-Unsubscribe` header value (URL or mailto:) from the original
+    /// email, suitable for a one-click unsubscribe button in the UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub list_unsubscribe: Option<String>,
+    /// Whether the message has any attachments. Lets UIs show a paperclip
+    /// icon without a second round-trip.
+    pub has_attachments: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -419,6 +436,9 @@ pub struct MessageUpsert {
     pub is_read: bool,
     pub created_at: String,
     pub raw_json: String,
+    /// Raw `List-Unsubscribe` header captured from the original mail, if any.
+    /// Used by `inbox unsubscribe` + client UIs for one-click unsubscribe.
+    pub list_unsubscribe: Option<String>,
 }
 
 // ── Command log ───────────────────────────────────────────────────────────

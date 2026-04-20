@@ -426,6 +426,18 @@ pub enum InboxCommand {
     Purge(InboxPurgeArgs),
     /// Mailbox counts for sidebar / dashboard
     Stats(InboxStatsArgs),
+    /// Star / flag messages for quick follow-up
+    Star(InboxStarArgs),
+    /// Remove the star on messages
+    Unstar(InboxStarArgs),
+    /// Snooze messages until a future time (they disappear from the inbox
+    /// until then, then reappear as unread).
+    Snooze(InboxSnoozeArgs),
+    /// Cancel a pending snooze so the message reappears now
+    Unsnooze(InboxUnsnoozeArgs),
+    /// Surface the List-Unsubscribe URL / mailto for a received message so a
+    /// client can one-click unsubscribe from marketing mail
+    Unsubscribe(InboxUnsubscribeArgs),
 }
 
 #[derive(Args)]
@@ -446,6 +458,13 @@ pub struct InboxListArgs {
     pub unread: bool,
     #[arg(long)]
     pub archived: bool,
+    /// Show only starred / flagged messages
+    #[arg(long)]
+    pub starred: bool,
+    /// Show only messages currently snoozed into the future. Without this
+    /// flag, the list hides snoozed messages until their wake time passes.
+    #[arg(long)]
+    pub snoozed: bool,
     /// Cursor for pagination: return messages with id < this value
     #[arg(long)]
     pub after: Option<i64>,
@@ -499,11 +518,32 @@ pub struct InboxThreadArgs {
 
 #[derive(Args)]
 pub struct InboxSearchArgs {
+    /// Free-text query (matched against subject + body via FTS). Empty string
+    /// is allowed when you rely on filter flags only.
+    #[arg(default_value = "")]
     pub query: String,
     #[arg(long)]
     pub account: Option<String>,
     #[arg(long, default_value = "25")]
     pub limit: usize,
+    /// Filter to messages from this sender (substring match on from_addr)
+    #[arg(long)]
+    pub from: Option<String>,
+    /// Filter to messages sent to this address (substring match on to_json)
+    #[arg(long)]
+    pub to: Option<String>,
+    /// Filter by subject substring
+    #[arg(long)]
+    pub subject: Option<String>,
+    /// Only messages that have at least one attachment
+    #[arg(long = "has-attachment")]
+    pub has_attachment: bool,
+    /// Only unread messages
+    #[arg(long)]
+    pub unread: bool,
+    /// Only starred messages
+    #[arg(long)]
+    pub starred: bool,
 }
 
 #[derive(Args)]
@@ -519,6 +559,32 @@ pub struct InboxPurgeArgs {
     pub before: String,
     #[arg(long)]
     pub account: Option<String>,
+}
+
+#[derive(Args)]
+pub struct InboxStarArgs {
+    /// Message IDs (one or more)
+    pub ids: Vec<i64>,
+}
+
+#[derive(Args)]
+pub struct InboxSnoozeArgs {
+    /// Message IDs to snooze
+    pub ids: Vec<i64>,
+    /// When to wake the message back up. Accepts: `tomorrow`, `tonight`,
+    /// `next-week`, `1h`, `4h`, `2d`, `1w`, or ISO-8601 timestamp.
+    #[arg(long)]
+    pub until: String,
+}
+
+#[derive(Args)]
+pub struct InboxUnsnoozeArgs {
+    pub ids: Vec<i64>,
+}
+
+#[derive(Args)]
+pub struct InboxUnsubscribeArgs {
+    pub id: i64,
 }
 
 #[derive(Subcommand)]

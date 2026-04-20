@@ -144,6 +144,11 @@ fn command_args(command: &Command) -> String {
             InboxCommand::Search(a) => format!("search \"{}\"", a.query),
             InboxCommand::Purge(a) => format!("purge --before {}", a.before),
             InboxCommand::Stats(a) => format!("stats {}", a.account.as_deref().unwrap_or("")),
+            InboxCommand::Star(a) => format!("star {:?}", a.ids),
+            InboxCommand::Unstar(a) => format!("unstar {:?}", a.ids),
+            InboxCommand::Snooze(a) => format!("snooze {:?} --until {}", a.ids, a.until),
+            InboxCommand::Unsnooze(a) => format!("unsnooze {:?}", a.ids),
+            InboxCommand::Unsubscribe(a) => format!("unsubscribe {}", a.id),
         },
         Command::Send(a) => format!(
             "--to {:?} --subject \"{}\"",
@@ -232,6 +237,11 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             InboxCommand::Search(args) => app.inbox_search(args)?,
             InboxCommand::Purge(args) => app.inbox_purge(args)?,
             InboxCommand::Stats(args) => app.inbox_stats(args)?,
+            InboxCommand::Star(args) => app.inbox_star(args, true)?,
+            InboxCommand::Unstar(args) => app.inbox_star(args, false)?,
+            InboxCommand::Snooze(args) => app.inbox_snooze(args)?,
+            InboxCommand::Unsnooze(args) => app.inbox_unsnooze(args)?,
+            InboxCommand::Unsubscribe(args) => app.inbox_unsubscribe(args)?,
         },
         Command::Attachments { command } => match command {
             AttachmentsCommand::List(args) => app.attachments_list(args)?,

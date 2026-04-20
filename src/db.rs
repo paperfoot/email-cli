@@ -177,6 +177,35 @@ pub const SCHEMA_DDL: &str = "
 
 // ── Row mappers ──────────────────────────────────────────────────────────────
 
+/// Pull the List-Unsubscribe value out of a Resend header blob. Resend packages
+/// the standard RFC 2369 `List-*` headers into a nested `list` key shaped as
+/// `{"unsubscribe": {"url": "...", "mail": "..."}, "unsubscribe-post": {...}}`.
+/// Other providers may surface a flat `list-unsubscribe` header. We handle
+/// both: return a comma-joined `<url>[, <mailto:...>]` value that matches the
+/// raw RFC-2369 format clients expect.
+fn extract_list_unsubscribe(headers: &std::collections::BTreeMap<String, serde_json::Value>) -> Option<String> {
+    use serde_json::Value;
+    if let Some(flat) = crate::helpers::header_string(headers, "list-unsubscribe") {
+        return Some(flat);
+    }
+    let list_val = headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("list")).map(|(_, v)| v)?;
+    let parsed: Value = match list_val {
+        Value::String(s) => serde_json::from_str(s).ok()?,
+        other => other.clone(),
+    };
+    let unsub = parsed.get("unsubscribe")?;
+    let url = unsub.get("url").and_then(|v| v.as_str());
+    let mail = unsub.get("mail").and_then(|v| v.as_str());
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(u) = url {
+        parts.push(format!("<{}>", u));
+    }
+    if let Some(m) = mail {
+        parts.push(format!("<mailto:{}>", m));
+    }
+    if parts.is_empty() { None } else { Some(parts.join(", ")) }
+}
+
 pub fn map_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<AccountRecord> {
     Ok(AccountRecord {
         email: row.get(0)?,
@@ -211,6 +240,9 @@ pub fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRecord> {
         created_at: row.get(17)?,
         synced_at: row.get(18)?,
         archived: row.get::<_, i64>(19)? == 1,
+        starred: row.get::<_, i64>(20)? == 1,
+        snoozed_until: row.get(21)?,
+        list_unsubscribe: row.get(22)?,
     })
 }
 
@@ -219,7 +251,8 @@ pub fn map_message(row: &rusqlite::Row<'_>) -> rusqlite::Result<MessageRecord> {
 /// without a second round-trip. Column order:
 ///   id, remote_id, direction, account_email, from_addr, to_json, cc_json,
 ///   subject, rfc_message_id, in_reply_to, last_event, is_read, created_at,
-///   archived, text_body
+///   archived, text_body, starred, snoozed_until, list_unsubscribe,
+///   has_attachments
 pub fn map_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::models::MessageSummary> {
     use crate::helpers::from_json;
     let body: Option<String> = row.get(14)?;
@@ -240,6 +273,10 @@ pub fn map_summary(row: &rusqlite::Row<'_>) -> rusqlite::Result<crate::models::M
         created_at: row.get(12)?,
         archived: row.get::<_, i64>(13)? == 1,
         text_preview,
+        starred: row.get::<_, i64>(15)? == 1,
+        snoozed_until: row.get(16)?,
+        list_unsubscribe: row.get(17)?,
+        has_attachments: row.get::<_, i64>(18)? > 0,
     })
 }
 
@@ -352,7 +389,8 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at, archived
+                       references_json, last_event, is_read, created_at, synced_at, archived,
+                       starred, snoozed_until, list_unsubscribe
                 FROM messages
                 WHERE id = ?1
                 ",
@@ -368,7 +406,8 @@ impl App {
                 "
                 SELECT id, remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                        reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                       references_json, last_event, is_read, created_at, synced_at, archived
+                       references_json, last_event, is_read, created_at, synced_at, archived,
+                       starred, snoozed_until, list_unsubscribe
                 FROM messages
                 WHERE remote_id = ?1
                 LIMIT 1
@@ -522,6 +561,7 @@ impl App {
             last_event: email.last_event,
             is_read: true,
             created_at,
+            list_unsubscribe: None,
             raw_json,
         })
     }
@@ -536,6 +576,7 @@ impl App {
         let headers = email.headers.clone().unwrap_or_default();
         let references = header_references(&headers);
         let in_reply_to = header_string(&headers, "in-reply-to");
+        let list_unsubscribe = extract_list_unsubscribe(&headers);
         let to = effective_received_to(&email);
         let cc = effective_received_cc(&email);
         let bcc = effective_received_bcc(&email);
@@ -561,6 +602,7 @@ impl App {
             is_read: false,
             created_at,
             raw_json,
+            list_unsubscribe,
         })?;
         Ok(record.id)
     }
@@ -629,8 +671,9 @@ impl App {
                         last_event = ?12,
                         created_at = ?13,
                         synced_at = CURRENT_TIMESTAMP,
-                        raw_json = ?14
-                    WHERE id = ?15
+                        raw_json = ?14,
+                        list_unsubscribe = COALESCE(?15, list_unsubscribe)
+                    WHERE id = ?16
                     ",
                     params![
                         payload.from_addr,
@@ -647,6 +690,7 @@ impl App {
                         payload.last_event,
                         payload.created_at,
                         payload.raw_json,
+                        payload.list_unsubscribe,
                         id,
                     ],
                 )?;
@@ -658,8 +702,8 @@ impl App {
                     INSERT INTO messages (
                         remote_id, direction, account_email, from_addr, to_json, cc_json, bcc_json,
                         reply_to_json, subject, text_body, html_body, rfc_message_id, in_reply_to,
-                        references_json, last_event, is_read, created_at, raw_json
-                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+                        references_json, last_event, is_read, created_at, raw_json, list_unsubscribe
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
                     ",
                     params![
                         payload.remote_id,
@@ -680,6 +724,7 @@ impl App {
                         if payload.is_read { 1 } else { 0 },
                         payload.created_at,
                         payload.raw_json,
+                        payload.list_unsubscribe,
                     ],
                 )?;
                 let id = self.conn.last_insert_rowid();
