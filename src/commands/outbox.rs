@@ -21,6 +21,25 @@ impl App {
         let idempotency_key = stable_idempotency_key(request);
         let id = Uuid::new_v4().to_string();
 
+        // Application-level dedup: if a row with this idempotency_key already
+        // exists, return its key without inserting a new one. Closes the gap
+        // where `ensure_outbox_unique_index` falls back to a non-unique index
+        // on installs that had pre-existing duplicate rows — in that case
+        // the DB wouldn't reject duplicates, so we enforce here. Also guards
+        // against the race where two threads try to outbox_send the same
+        // request concurrently (identical key, identical hash).
+        let existing: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT id FROM outbox WHERE idempotency_key = ?1 LIMIT 1",
+                params![idempotency_key],
+                |row| row.get(0),
+            )
+            .ok();
+        if existing.is_some() {
+            return Ok(idempotency_key);
+        }
+
         self.conn.execute(
             "INSERT INTO outbox (id, account_email, request_json, idempotency_key, status)
              VALUES (?1, ?2, ?3, ?4, 'pending')",
@@ -122,8 +141,14 @@ impl App {
     }
 
     pub fn outbox_flush(&self) -> Result<()> {
+        // Only pick up `pending` rows on an automatic flush. Previously this
+        // swept `failed` rows back in too, which created an indefinite retry
+        // loop for permanently-bad entries (deleted account, malformed JSON,
+        // bad recipient). Failed rows now stay put until the user explicitly
+        // retries them via `outbox retry <id>` — that path already resets
+        // status back to `pending` on the way through.
         let mut stmt = self.conn.prepare(
-            "SELECT id, request_json, idempotency_key, account_email FROM outbox WHERE status IN ('pending', 'failed') ORDER BY created_at",
+            "SELECT id, request_json, idempotency_key, account_email FROM outbox WHERE status = 'pending' ORDER BY created_at",
         )?;
 
         struct PendingEntry {
