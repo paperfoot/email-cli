@@ -822,6 +822,21 @@ pub struct WebhookListenArgs {
     /// Send desktop notifications for new messages
     #[arg(long)]
     pub notify: bool,
+    /// Interface to bind. Defaults to 127.0.0.1 so the listener is not
+    /// reachable from the LAN. Pass 0.0.0.0 only if you have a shared
+    /// secret configured; the server refuses to start on 0.0.0.0 without
+    /// one.
+    #[arg(long, default_value = "127.0.0.1")]
+    pub host: String,
+    /// Name of an environment variable holding the shared secret. Incoming
+    /// requests must carry a matching `X-Webhook-Secret` header or they get
+    /// 401. Preferred over `--secret-file` when both are set.
+    #[arg(long)]
+    pub secret_env: Option<String>,
+    /// Path to a file whose trimmed contents are the shared secret. Used
+    /// only if `--secret-env` is not set.
+    #[arg(long)]
+    pub secret_file: Option<String>,
 }
 
 // ── Events commands ───────────────────────────────────────────────────────
