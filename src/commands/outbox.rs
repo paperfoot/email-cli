@@ -12,6 +12,11 @@ impl App {
     /// Write a send intent to the outbox with a stable idempotency key,
     /// then return the key for immediate delivery attempt.
     pub fn outbox_send(&self, request: &SendEmailRequest, account_email: &str) -> Result<String> {
+        // Opportunistically upgrade the idempotency-key index to UNIQUE. It's
+        // a no-op once done, and we want the DB-level guard in place before
+        // the first insert (ritalin O-010).
+        let _ = crate::db::ensure_outbox_unique_index(&self.conn);
+
         let request_json = serde_json::to_string(request)?;
         let idempotency_key = stable_idempotency_key(request);
         let id = Uuid::new_v4().to_string();
@@ -196,6 +201,19 @@ fn stable_idempotency_key(request: &SendEmailRequest) -> String {
     for to in &sorted_to {
         hasher.update(to.as_bytes());
     }
+    // cc/bcc change the audience; without hashing them, two sends that differ
+    // only by carbon-copy collide onto the same key and the second one gets
+    // silently suppressed by Resend's idempotency check (ritalin O-010).
+    let mut sorted_cc = request.cc.clone();
+    sorted_cc.sort();
+    for cc in &sorted_cc {
+        hasher.update(cc.as_bytes());
+    }
+    let mut sorted_bcc = request.bcc.clone();
+    sorted_bcc.sort();
+    for bcc in &sorted_bcc {
+        hasher.update(bcc.as_bytes());
+    }
     hasher.update(request.subject.as_bytes());
     if let Some(text) = &request.text {
         hasher.update(text.as_bytes());
@@ -203,6 +221,95 @@ fn stable_idempotency_key(request: &SendEmailRequest) -> String {
     if let Some(html) = &request.html {
         hasher.update(html.as_bytes());
     }
+    // Same motivation as cc/bcc: two messages with identical headers but
+    // different attachments must not share an idempotency key.
+    for attachment in &request.attachments {
+        hasher.update(attachment.filename.as_bytes());
+        hasher.update(attachment.content.as_bytes());
+    }
     let hash = hasher.finalize();
     format!("email-cli-{:x}", hash)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{SendAttachment, SendEmailRequest};
+
+    fn base_request() -> SendEmailRequest {
+        SendEmailRequest {
+            from: "a@example.com".into(),
+            to: vec!["b@example.com".into()],
+            cc: vec![],
+            bcc: vec![],
+            subject: "hello".into(),
+            text: Some("hi".into()),
+            html: None,
+            headers: None,
+            attachments: vec![],
+        }
+    }
+
+    #[test]
+    fn key_differs_when_cc_differs() {
+        let r1 = base_request();
+        let mut r2 = base_request();
+        r2.cc = vec!["c@example.com".into()];
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_differs_when_bcc_differs() {
+        let r1 = base_request();
+        let mut r2 = base_request();
+        r2.bcc = vec!["d@example.com".into()];
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_differs_when_attachment_added() {
+        let r1 = base_request();
+        let mut r2 = base_request();
+        r2.attachments.push(SendAttachment {
+            filename: "x.pdf".into(),
+            content: "AAAA".into(),
+        });
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_differs_when_attachment_content_differs() {
+        let mut r1 = base_request();
+        r1.attachments.push(SendAttachment {
+            filename: "x.pdf".into(),
+            content: "AAAA".into(),
+        });
+        let mut r2 = base_request();
+        r2.attachments.push(SendAttachment {
+            filename: "x.pdf".into(),
+            content: "BBBB".into(),
+        });
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_stable_regardless_of_recipient_order() {
+        let mut r1 = base_request();
+        r1.to = vec!["a@e.com".into(), "b@e.com".into()];
+        r1.cc = vec!["x@e.com".into(), "y@e.com".into()];
+        r1.bcc = vec!["m@e.com".into(), "n@e.com".into()];
+        let mut r2 = base_request();
+        r2.to = vec!["b@e.com".into(), "a@e.com".into()];
+        r2.cc = vec!["y@e.com".into(), "x@e.com".into()];
+        r2.bcc = vec!["n@e.com".into(), "m@e.com".into()];
+        assert_eq!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_matches_for_identical_requests() {
+        assert_eq!(
+            stable_idempotency_key(&base_request()),
+            stable_idempotency_key(&base_request())
+        );
+    }
 }

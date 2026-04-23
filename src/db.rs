@@ -127,6 +127,13 @@ pub const SCHEMA_DDL: &str = "
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- Non-unique fallback index so lookup-by-key stays fast even if an older
+    -- database has duplicate rows from before the cc/bcc/attachments fix
+    -- (ritalin O-010). `ensure_outbox_unique_index` in db.rs is the preferred
+    -- path and upgrades this to UNIQUE when safe.
+    CREATE INDEX IF NOT EXISTS idx_outbox_idempotency_key
+    ON outbox(idempotency_key);
+
     -- v0.2.0: events table
     CREATE TABLE IF NOT EXISTS events (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -174,6 +181,67 @@ pub const SCHEMA_DDL: &str = "
     -- One-time rebuild so existing databases get indexed
     INSERT OR REPLACE INTO messages_fts(messages_fts) VALUES('rebuild');
 ";
+
+/// Upgrade the outbox idempotency-key index from the non-unique fallback to a
+/// proper UNIQUE index when safe. This is the enforcement layer for ritalin
+/// O-010: the application-level key now covers cc/bcc/attachments, but the
+/// database should also refuse to let a duplicate sneak in.
+///
+/// Safety dance for pre-existing databases:
+///   * If a UNIQUE index already exists: no-op.
+///   * If no duplicate idempotency keys exist: create the UNIQUE index and
+///     drop the old non-unique one.
+///   * If duplicates exist: log them to stderr, keep the non-unique index,
+///     and leave a breadcrumb so a future migration can clean up. We refuse
+///     to crash here — the outbox staying writable matters more than schema
+///     tightness.
+///
+/// Idempotent and safe to call repeatedly. Callers should invoke it before
+/// inserting into `outbox` so the unique constraint is in place the first
+/// time it matters.
+pub fn ensure_outbox_unique_index(conn: &rusqlite::Connection) -> Result<()> {
+    // Cheap check first: is the unique index already present?
+    let already_unique: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE type = 'index' AND name = 'uniq_outbox_idempotency_key'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if already_unique > 0 {
+        return Ok(());
+    }
+
+    // Scan for duplicates. If any exist we can't safely add a UNIQUE index.
+    let dup_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM (
+                SELECT idempotency_key FROM outbox
+                GROUP BY idempotency_key HAVING COUNT(*) > 1
+             )",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+    if dup_count > 0 {
+        eprintln!(
+            "email-cli: outbox has {} duplicate idempotency_key group(s); leaving \
+             non-unique index in place. TODO: dedupe before upgrading to UNIQUE.",
+            dup_count
+        );
+        return Ok(());
+    }
+
+    // Safe to upgrade. Create the unique index first, then drop the fallback.
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uniq_outbox_idempotency_key \
+         ON outbox(idempotency_key);
+         DROP INDEX IF EXISTS idx_outbox_idempotency_key;",
+    )
+    .context("failed to create UNIQUE index on outbox.idempotency_key")?;
+    Ok(())
+}
 
 // ── Row mappers ──────────────────────────────────────────────────────────────
 
