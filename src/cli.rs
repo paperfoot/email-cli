@@ -359,6 +359,12 @@ pub struct DraftEditArgs {
     pub cc: Option<Vec<String>>,
     #[arg(long)]
     pub bcc: Option<Vec<String>>,
+    /// Change the sending account for an existing draft. Passed from Minimail
+    /// when the user picks a different From in the compose dropdown — without
+    /// this, reopening the draft would reset the sender to its original
+    /// value. Omit to keep the stored account_email.
+    #[arg(long, visible_alias = "from")]
+    pub account: Option<String>,
     /// Path to attachment; repeat for multiple. Passing any --attach REPLACES
     /// the draft's existing attachment list; omit entirely to keep what's stored.
     #[arg(long = "attach")]
