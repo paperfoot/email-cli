@@ -139,6 +139,14 @@ impl App {
         let to = args.to.map(|v| normalize_emails(&v)).unwrap_or(draft.to);
         let cc = args.cc.map(|v| normalize_emails(&v)).unwrap_or(draft.cc);
         let bcc = args.bcc.map(|v| normalize_emails(&v)).unwrap_or(draft.bcc);
+        // `account_email` is the identity the draft will send from. Only
+        // touch it when Minimail explicitly provides a new one; otherwise
+        // preserve whatever was stored on create so unrelated edits don't
+        // silently migrate the draft to another account.
+        let account_email = args
+            .account
+            .map(|a| crate::helpers::normalize_email(&a))
+            .unwrap_or(draft.account_email);
 
         // Attachment handling: three mutually-exclusive states.
         //   1. `--attach <path> ...` -> replace list with freshly snapshotted copies
@@ -162,11 +170,12 @@ impl App {
                 &args.attachments,
             )?;
             self.conn.execute(
-                "UPDATE drafts SET subject = ?1, text_body = ?2, html_body = ?3,
-                 to_json = ?4, cc_json = ?5, bcc_json = ?6,
-                 attachment_paths_json = ?7, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?8",
+                "UPDATE drafts SET account_email = ?1, subject = ?2, text_body = ?3, html_body = ?4,
+                 to_json = ?5, cc_json = ?6, bcc_json = ?7,
+                 attachment_paths_json = ?8, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?9",
                 params![
+                    account_email,
                     subject,
                     text_body,
                     html_body,
@@ -179,10 +188,11 @@ impl App {
             )?;
         } else {
             self.conn.execute(
-                "UPDATE drafts SET subject = ?1, text_body = ?2, html_body = ?3,
-                 to_json = ?4, cc_json = ?5, bcc_json = ?6, updated_at = CURRENT_TIMESTAMP
-                 WHERE id = ?7",
+                "UPDATE drafts SET account_email = ?1, subject = ?2, text_body = ?3, html_body = ?4,
+                 to_json = ?5, cc_json = ?6, bcc_json = ?7, updated_at = CURRENT_TIMESTAMP
+                 WHERE id = ?8",
                 params![
+                    account_email,
                     subject,
                     text_body,
                     html_body,
@@ -311,6 +321,7 @@ mod tests {
             to: None,
             cc: None,
             bcc: None,
+            account: None,
             attachments: vec![replacement.clone()],
             clear_attachments: false,
         })
@@ -359,6 +370,7 @@ mod tests {
             to: None,
             cc: None,
             bcc: None,
+            account: None,
             attachments: vec![],
             clear_attachments: true,
         })
@@ -403,6 +415,7 @@ mod tests {
             to: None,
             cc: None,
             bcc: None,
+            account: None,
             attachments: vec![],
             clear_attachments: false,
         })
