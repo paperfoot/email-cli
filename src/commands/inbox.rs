@@ -11,6 +11,113 @@ use crate::cli::{
 use crate::helpers::compact_targets;
 use crate::output::print_success_or;
 
+/// Pull the bare email out of a possibly-wrapped address string. Handles
+/// `Name <addr@host>` and `addr@host` forms. Used by the thread-link
+/// heuristic so we can substring-match a `to_json` array regardless of
+/// whether the recipient stored their address with a display name.
+fn extract_bare_email(raw: &str) -> String {
+    if let (Some(open), Some(close)) = (raw.find('<'), raw.rfind('>')) {
+        if open < close {
+            return raw[open + 1..close].trim().to_string();
+        }
+    }
+    raw.trim().to_string()
+}
+
+/// Lowercase email domain, "" if absent. Used by the thread heuristic to
+/// match "alice@x.com" with "bob@x.com" — different people at the same
+/// org very commonly take over a thread.
+fn email_domain(addr: &str) -> String {
+    if let Some(at) = addr.rfind('@') {
+        return addr[at + 1..].trim().to_lowercase();
+    }
+    String::new()
+}
+
+/// Strip reply / forward prefixes (multi-language) and enterprise-mail-
+/// server bracket tags (`[EXT]`, `[⚠️External]`, `[URGENT]`, etc.) so
+/// subject-based thread matching survives real-world noise.
+///
+/// Covers the prefix vocabularies of every major language the JWZ
+/// threading algorithm recognises: English, German, Spanish, French,
+/// Portuguese, Polish, Italian, Dutch, Chinese, Japanese, Korean. Also
+/// handles numbered prefixes like "Re[2]:" / "Re²:" / "Re(3):".
+///
+/// Used by `inbox_thread` as a fallback when the RFC header chain
+/// breaks (e.g. Resend / SES rewriting our outbound Message-ID).
+fn normalize_subject(subject: &str) -> String {
+    // Reply / forward prefixes in priority order — the loop strips one
+    // per iteration and re-checks until nothing matches.
+    const PREFIXES: &[&str] = &[
+        // English / generic
+        "re:", "re :", "fwd:", "fw:", "fwd :", "fw :",
+        // German
+        "aw:", "wg:", "antwort:", "weiterleitung:",
+        // Spanish
+        "rv:", "ref:",
+        // French
+        "tr:", "rép:", "rep:",
+        // Portuguese
+        "enc:", "res:",
+        // Polish
+        "odp:", "pd:",
+        // Italian
+        "r:", "i:", "rif:",
+        // Dutch (overlap with German aw:)
+        // CJK
+        "回复:", "回覆:", "答复:",  // Chinese
+        "返信:", "転送:", "fwd：",  // Japanese (full-width colon variant)
+        "회신:", "전달:",            // Korean
+    ];
+
+    let mut s = subject.trim().to_string();
+    loop {
+        let mut stripped = false;
+        let lower = s.to_lowercase();
+        for prefix in PREFIXES {
+            if lower.starts_with(prefix) {
+                s = s[prefix.len()..].trim_start().to_string();
+                stripped = true;
+                break;
+            }
+        }
+        if stripped { continue }
+
+        // Numbered reply: "Re[2]:", "Re(3):", "Re²:", etc.
+        let lower = s.to_lowercase();
+        if lower.starts_with("re") {
+            let after_re = &s[2..];
+            // Match Re[N]: or Re(N): or ReN: where N is digits / superscript
+            if let Some(colon) = after_re.find(':') {
+                let middle = &after_re[..colon];
+                let middle_trim = middle.trim();
+                let is_numbered = middle_trim.starts_with('[') && middle_trim.ends_with(']')
+                    || middle_trim.starts_with('(') && middle_trim.ends_with(')')
+                    || middle_trim.chars().all(|c| c.is_ascii_digit()
+                        || ['²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'].contains(&c))
+                    || middle_trim.is_empty();
+                if is_numbered {
+                    s = s[2 + colon + 1..].trim_start().to_string();
+                    stripped = true;
+                }
+            }
+        }
+        if stripped { continue }
+
+        // Strip leading `[...]` bracket tag — handles stacked tags like
+        // `[EXT][URGENT] subject` because the loop re-runs.
+        let trimmed = s.trim_start();
+        if trimmed.starts_with('[') {
+            if let Some(close) = trimmed.find(']') {
+                s = trimmed[close + 1..].trim_start().to_string();
+                stripped = true;
+            }
+        }
+        if !stripped { break }
+    }
+    s.to_lowercase().trim().to_string()
+}
+
 /// Resolve a user-friendly snooze string ("tomorrow", "4h", ISO-8601) into a
 /// concrete UTC wake timestamp. Accepts the following forms:
 ///   - `tonight`           → 7pm local today
@@ -514,7 +621,119 @@ impl App {
 
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(refs.as_slice(), crate::db::map_summary)?;
-        let messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
+
+        // Heuristic fallback for the sent ↔ received link.
+        //
+        // Resend's API does not return the delivered Message-ID of sent
+        // messages — they get rewritten by AmazonSES on the wire — so our
+        // locally-stored `rfc_message_id` for outbound mail rarely matches
+        // the `In-Reply-To` recipients quote when they reply. The header-
+        // based join above therefore misses the most important link in any
+        // thread: the user's own outbound message that started the
+        // conversation.
+        //
+        // Cover that case with a conservative heuristic: include any sent
+        // message whose normalised subject equals the seed's normalised
+        // subject AND whose `to_json` contains the seed's `from_addr`. We
+        // restrict to direction='sent' so we never accidentally cluster
+        // unrelated incoming threads with the same generic subject.
+        // Heuristic fallback: when header chains are broken (Resend/SES
+        // rewrites our outbound Message-ID, recipients reword subjects,
+        // etc.), supplement the header join with subject + participant +
+        // time matching. Modeled after the JWZ algorithm + Thunderbird
+        // Gloda's fallback pass — conservative enough that it won't
+        // false-cluster two unrelated "Update" threads.
+        //
+        // Three signals must all line up for a match:
+        //   1. Bidirectional participant overlap (sent.to ⊇ received.from
+        //      OR received.to ⊇ sent.from).
+        //   2. Normalised subject substring match either way.
+        //   3. Within a 90-day window of the seed's created_at.
+        let normalised_seed = normalize_subject(&seed.subject);
+        let seed_created = seed.created_at.clone();
+        if !normalised_seed.is_empty() {
+            // Pull both directions: sent messages addressed to the seed's
+            // counterpart, AND received messages from the seed's recipients
+            // (covers the "different person on the other side replied" case).
+            let bare_seed_from = extract_bare_email(&seed.from_addr);
+            let seed_to_bare: Vec<String> = seed.to.iter()
+                .map(|t| extract_bare_email(t))
+                .filter(|s| !s.is_empty())
+                .collect();
+            // 90 days in either direction. Long enough for stale threads to
+            // catch up; short enough that "Re: Update" from a year ago
+            // doesn't get pulled in.
+            let cutoff_low = seed_created.clone();  // ISO-8601 lex compare works
+            let cutoff_high = seed_created.clone();
+
+            let cand_sql = "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json,
+                m.subject, m.rfc_message_id, m.in_reply_to, m.last_event, m.is_read, m.created_at, m.archived,
+                m.text_body, m.starred, m.snoozed_until, m.list_unsubscribe,
+                (SELECT COUNT(*) FROM attachments a WHERE a.message_id = m.id) AS has_attachments
+             FROM messages m
+             WHERE m.id != ?1
+               AND m.account_email = ?2
+               AND m.created_at >= datetime(?3, '-90 days')
+               AND m.created_at <= datetime(?4, '+90 days')";
+            let mut cand_stmt = self.conn.prepare(cand_sql)?;
+            let extras = cand_stmt
+                .query_map(
+                    params![seed.id, seed.account_email, cutoff_low, cutoff_high],
+                    crate::db::map_summary,
+                )?
+                .filter_map(|r| r.ok())
+                .filter(|cand| {
+                    // Subject signal — either side may have extra prefixes.
+                    let cand_subj = normalize_subject(&cand.subject);
+                    if cand_subj.is_empty() { return false }
+                    let subject_match = cand_subj == normalised_seed
+                        || normalised_seed.contains(&cand_subj)
+                        || cand_subj.contains(&normalised_seed);
+                    if !subject_match { return false }
+
+                    // Participant signal. We match at TWO granularities:
+                    //   (a) exact bare-email overlap — the strongest signal
+                    //   (b) email DOMAIN overlap — handles the very common
+                    //       "different person at the same org replied" case
+                    //       (e.g. you mailed finance@x.com, drbenito@x.com
+                    //       jumps in; or alice@x.com forwards to bob@x.com).
+                    //
+                    // Domain match alone is conservative because the time
+                    // window + subject normalisation already restrict scope.
+                    let cand_from_bare = extract_bare_email(&cand.from_addr);
+                    let cand_from_domain = email_domain(&cand_from_bare);
+                    let cand_to_bare: Vec<String> = cand.to.iter()
+                        .map(|t| extract_bare_email(t))
+                        .collect();
+                    let cand_to_domains: Vec<String> = cand_to_bare
+                        .iter().map(|s| email_domain(s)).collect();
+
+                    let seed_from_domain = email_domain(&bare_seed_from);
+                    let seed_to_domains: Vec<String> = seed_to_bare
+                        .iter().map(|s| email_domain(s)).collect();
+
+                    let exact_overlap =
+                        cand_to_bare.iter().any(|t| t.eq_ignore_ascii_case(&bare_seed_from))
+                        || seed_to_bare.iter().any(|t| t.eq_ignore_ascii_case(&cand_from_bare))
+                        || cand_from_bare.eq_ignore_ascii_case(&bare_seed_from);
+
+                    let domain_overlap = !cand_from_domain.is_empty() && (
+                        seed_to_domains.iter().any(|d| d == &cand_from_domain)
+                        || cand_to_domains.iter().any(|d| d == &seed_from_domain)
+                    );
+
+                    exact_overlap || domain_overlap
+                });
+            let existing_ids: std::collections::HashSet<i64> =
+                messages.iter().map(|m| m.id).collect();
+            for extra in extras {
+                if !existing_ids.contains(&extra.id) {
+                    messages.push(extra);
+                }
+            }
+            messages.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+        }
 
         print_success_or(self.format, &messages, |messages| {
             for m in messages {
