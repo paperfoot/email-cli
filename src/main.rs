@@ -247,6 +247,7 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
         Command::Attachments { command } => match command {
             AttachmentsCommand::List(args) => app.attachments_list(args)?,
             AttachmentsCommand::Get(args) => app.attachments_get(args)?,
+            AttachmentsCommand::Prefetch(args) => app.attachments_prefetch(args)?,
         },
         Command::Domain { command } => match command {
             DomainCommand::List => app.domain_list()?,

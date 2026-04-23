@@ -593,6 +593,9 @@ pub enum AttachmentsCommand {
     List(AttachmentListArgs),
     #[command(visible_alias = "show")]
     Get(AttachmentGetArgs),
+    /// Eagerly cache all uncached attachments to disk. Refreshes Resend's
+    /// signed URLs (which expire) before downloading. Safe to run repeatedly.
+    Prefetch(AttachmentPrefetchArgs),
 }
 
 #[derive(Args)]
@@ -606,6 +609,16 @@ pub struct AttachmentGetArgs {
     pub attachment_id: String,
     #[arg(long)]
     pub output: Option<PathBuf>,
+}
+
+#[derive(Args)]
+pub struct AttachmentPrefetchArgs {
+    /// Only prefetch attachments for messages in this account.
+    #[arg(long)]
+    pub account: Option<String>,
+    /// Maximum number of attachments to fetch in one run. Iterates newest-first.
+    #[arg(long, default_value = "500")]
+    pub limit: usize,
 }
 
 #[derive(Subcommand)]

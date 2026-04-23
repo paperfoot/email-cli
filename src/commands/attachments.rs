@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::app::App;
-use crate::cli::{AttachmentGetArgs, AttachmentListArgs};
+use crate::cli::{AttachmentGetArgs, AttachmentListArgs, AttachmentPrefetchArgs};
 use crate::helpers::write_file_safely;
 use crate::output::print_success_or;
 
@@ -80,6 +80,163 @@ impl App {
             println!("{}", output_path.display());
         });
 
+        Ok(())
+    }
+
+    /// Eagerly cache any attachment that doesn't have a local file yet. Iterates
+    /// messages newest-first. For each candidate message, one Resend API call
+    /// refreshes the signed URLs (they expire — see the 403s you'll otherwise
+    /// hit at click time), then each attachment is downloaded and `local_path`
+    /// is persisted. Failures are counted but don't abort the run — Minimail
+    /// fires this after every sync, so transient errors heal on the next tick.
+    pub fn attachments_prefetch(&self, args: AttachmentPrefetchArgs) -> Result<()> {
+        // Step 1 — enumerate candidate messages (one message may have multiple
+        // attachments; we dedupe so we only hit Resend's list endpoint once per
+        // message).
+        let mut candidates: Vec<(i64, String, String)> = Vec::new();
+        if let Some(ref account) = args.account {
+            let acct = crate::helpers::normalize_email(account);
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT a.message_id, m.remote_id, m.account_email
+                 FROM attachments a
+                 JOIN messages m ON a.message_id = m.id
+                 WHERE a.local_path IS NULL
+                   AND m.direction = 'received'
+                   AND m.account_email = ?1
+                 ORDER BY m.created_at DESC
+                 LIMIT ?2",
+            )?;
+            let rows = stmt.query_map(params![acct, args.limit as i64], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            for row in rows {
+                candidates.push(row?);
+            }
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT a.message_id, m.remote_id, m.account_email
+                 FROM attachments a
+                 JOIN messages m ON a.message_id = m.id
+                 WHERE a.local_path IS NULL
+                   AND m.direction = 'received'
+                 ORDER BY m.created_at DESC
+                 LIMIT ?1",
+            )?;
+            let rows = stmt.query_map(params![args.limit as i64], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                ))
+            })?;
+            for row in rows {
+                candidates.push(row?);
+            }
+        }
+
+        let output_dir = self
+            .db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("downloads");
+        fs::create_dir_all(&output_dir)?;
+
+        let mut downloaded = 0usize;
+        let mut errors = 0usize;
+
+        for (message_id, remote_id, account_email) in candidates {
+            let account = match self.get_account(&account_email) {
+                Ok(a) => a,
+                Err(_) => {
+                    errors += 1;
+                    continue;
+                }
+            };
+            let client = match self.client_for_profile(&account.profile_name) {
+                Ok(c) => c,
+                Err(_) => {
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            // Refresh URLs — Resend's signed download links expire; re-fetching
+            // from /emails/receiving/{id}/attachments yields fresh ones.
+            let fresh = match client.list_received_attachments(&remote_id) {
+                Ok(list) => list,
+                Err(_) => {
+                    errors += 1;
+                    continue;
+                }
+            };
+            if self.store_received_attachments(message_id, &fresh).is_err() {
+                errors += 1;
+                continue;
+            }
+
+            // Re-read the local rows so we get current (filename, local_path,
+            // freshly-updated download_url).
+            let rows = match self.list_attachments(message_id) {
+                Ok(r) => r,
+                Err(_) => {
+                    errors += 1;
+                    continue;
+                }
+            };
+            for attachment in rows {
+                if attachment.local_path.is_some() {
+                    continue;
+                }
+                let Some(url) = attachment.download_url.as_deref() else {
+                    // Resend gave us no URL even after the refresh — skip
+                    // quietly. This happens for inline images embedded via CID
+                    // that aren't exposed as separate downloadable files.
+                    continue;
+                };
+                let filename = attachment
+                    .filename
+                    .clone()
+                    .unwrap_or_else(|| format!("attachment-{}", attachment.id));
+                let bytes = match client.download_attachment(url) {
+                    Ok(b) => b,
+                    Err(_) => {
+                        errors += 1;
+                        continue;
+                    }
+                };
+                let output_path = match write_file_safely(&output_dir, &filename, &bytes) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        errors += 1;
+                        continue;
+                    }
+                };
+                self.conn.execute(
+                    "UPDATE attachments SET local_path = ?1 WHERE id = ?2",
+                    params![output_path.display().to_string(), attachment.id],
+                )?;
+                downloaded += 1;
+            }
+        }
+
+        let data = json!({
+            "downloaded": downloaded,
+            "errors": errors,
+        });
+        print_success_or(self.format, &data, |_d| {
+            if downloaded == 0 && errors == 0 {
+                println!("no attachments to prefetch");
+            } else {
+                println!(
+                    "prefetched {} attachment(s); {} error(s)",
+                    downloaded, errors
+                );
+            }
+        });
         Ok(())
     }
 }
