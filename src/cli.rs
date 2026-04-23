@@ -359,6 +359,14 @@ pub struct DraftEditArgs {
     pub cc: Option<Vec<String>>,
     #[arg(long)]
     pub bcc: Option<Vec<String>>,
+    /// Path to attachment; repeat for multiple. Passing any --attach REPLACES
+    /// the draft's existing attachment list; omit entirely to keep what's stored.
+    #[arg(long = "attach")]
+    pub attachments: Vec<PathBuf>,
+    /// Drop all existing attachments without adding new ones. Mutually exclusive
+    /// with --attach (which already replaces the list).
+    #[arg(long, conflicts_with = "attachments")]
+    pub clear_attachments: bool,
 }
 
 #[derive(Args)]
