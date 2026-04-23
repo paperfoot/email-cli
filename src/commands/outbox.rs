@@ -148,23 +148,36 @@ impl App {
         let mut failed = 0usize;
 
         for entry in &entries {
+            // Each of the three pre-flight steps below (account lookup,
+            // client creation, JSON parse) used to just bump the `failed`
+            // counter and `continue` without touching the DB row. That left
+            // the entry in `pending` / `failed` status with no update —
+            // stuck forever across restarts until manually retried, with no
+            // `last_error` to explain why. Now we persist the failure via
+            // `outbox_mark_failed` so `outbox list` surfaces the real
+            // reason. Result ignored on purpose: we're already on the
+            // failure path, double-faulting on a DB write shouldn't mask
+            // the actual error (ritalin O-011; GPT-5.4 Pro Rust #3).
             let account = match self.get_account(&entry.account_email) {
                 Ok(a) => a,
-                Err(_) => {
+                Err(err) => {
+                    let _ = self.outbox_mark_failed(&entry.idempotency_key, &err.to_string());
                     failed += 1;
                     continue;
                 }
             };
             let client = match self.client_for_profile(&account.profile_name) {
                 Ok(c) => c,
-                Err(_) => {
+                Err(err) => {
+                    let _ = self.outbox_mark_failed(&entry.idempotency_key, &err.to_string());
                     failed += 1;
                     continue;
                 }
             };
             let request: SendEmailRequest = match serde_json::from_str(&entry.request_json) {
                 Ok(r) => r,
-                Err(_) => {
+                Err(err) => {
+                    let _ = self.outbox_mark_failed(&entry.idempotency_key, &err.to_string());
                     failed += 1;
                     continue;
                 }
