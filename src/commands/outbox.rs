@@ -259,6 +259,14 @@ fn stable_idempotency_key(request: &SendEmailRequest) -> String {
     if let Some(html) = &request.html {
         hasher.update(html.as_bytes());
     }
+    if let Some(headers) = &request.headers {
+        let mut sorted_headers = headers.iter().collect::<Vec<_>>();
+        sorted_headers.sort_by(|a, b| a.0.cmp(b.0));
+        for (name, value) in sorted_headers {
+            hasher.update(name.as_bytes());
+            hasher.update(value.as_bytes());
+        }
+    }
     // Same motivation as cc/bcc: two messages with identical headers but
     // different attachments must not share an idempotency key.
     for attachment in &request.attachments {
@@ -327,6 +335,17 @@ mod tests {
             filename: "x.pdf".into(),
             content: "BBBB".into(),
         });
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_differs_when_headers_differ() {
+        let r1 = base_request();
+        let mut r2 = base_request();
+        r2.headers = Some(std::collections::HashMap::from([(
+            "In-Reply-To".into(),
+            "<message-a@example.com>".into(),
+        )]));
         assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
     }
 

@@ -35,6 +35,10 @@ impl App {
             None
         };
 
+        if compose.to.is_empty() {
+            bail!("at least one --to is required");
+        }
+
         let message = self.send_compose(compose, reply_context)?;
 
         print_success_or(self.format, &message, |message| {
@@ -130,15 +134,23 @@ impl App {
     }
 
     pub fn resolve_compose(&self, compose: ComposeArgs) -> Result<ResolvedCompose> {
+        let compose = self.resolve_compose_without_body_requirement(compose)?;
+        if compose.text.is_none() && compose.html.is_none() {
+            bail!("one of --text/--text-file or --html/--html-file is required");
+        }
+        Ok(compose)
+    }
+
+    pub fn resolve_compose_without_body_requirement(
+        &self,
+        compose: ComposeArgs,
+    ) -> Result<ResolvedCompose> {
         let account = match compose.account {
             Some(account) => self.get_account(&normalize_email(&account))?,
             None => self.default_account()?,
         };
         let text = read_optional_content(compose.text, compose.text_file)?;
         let html = read_optional_content(compose.html, compose.html_file)?;
-        if text.is_none() && html.is_none() {
-            bail!("one of --text/--text-file or --html/--html-file is required");
-        }
         Ok(ResolvedCompose {
             account,
             to: normalize_emails(&compose.to),

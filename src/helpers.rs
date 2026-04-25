@@ -114,7 +114,11 @@ pub fn normalize_email(value: &str) -> String {
 }
 
 pub fn normalize_emails(values: &[String]) -> Vec<String> {
-    values.iter().map(|value| normalize_email(value)).collect()
+    values
+        .iter()
+        .map(|value| normalize_email(value))
+        .filter(|value| !value.is_empty())
+        .collect()
 }
 
 pub fn to_json<T: Serialize>(value: &T) -> Result<String> {

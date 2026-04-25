@@ -138,6 +138,15 @@ impl App {
             }
         }
 
+        if !errors.is_empty() {
+            let details = errors
+                .iter()
+                .map(|(email, err)| format!("{email}: {err}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            bail!("sync failed for {} account(s): {}", errors.len(), details);
+        }
+
         print_success_or(self.format, &summary, |summary| {
             println!(
                 "synced profiles={} sent={} received={}",
@@ -190,11 +199,7 @@ impl App {
                 }
             }
 
-            if is_cold_start
-                || stop
-                || !page.has_more.unwrap_or(false)
-                || last_id.is_none()
-            {
+            if is_cold_start || stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
                 break;
             }
             after = last_id;
@@ -247,11 +252,7 @@ impl App {
                 total += 1;
             }
 
-            if is_cold_start
-                || stop
-                || !page.has_more.unwrap_or(false)
-                || last_id.is_none()
-            {
+            if is_cold_start || stop || !page.has_more.unwrap_or(false) || last_id.is_none() {
                 break;
             }
             after = last_id;

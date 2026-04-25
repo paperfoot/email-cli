@@ -17,9 +17,10 @@ use crate::output::print_success_or;
 
 impl App {
     pub fn draft_create(&self, args: DraftCreateArgs) -> Result<()> {
-        let compose = self.resolve_compose(args.compose)?;
+        let reply_to_message_id = args.reply_to.or(args.compose.reply_to_msg);
+        let compose = self.resolve_compose_without_body_requirement(args.compose)?;
         let id = Uuid::new_v4().to_string();
-        if let Some(message_id) = args.reply_to {
+        if let Some(message_id) = reply_to_message_id {
             let target = self.get_message(message_id)?;
             ensure_reply_account_matches(&target, &compose.account)?;
         }
@@ -44,7 +45,7 @@ impl App {
                 compose.subject,
                 compose.text,
                 compose.html,
-                args.reply_to,
+                reply_to_message_id,
                 to_json(&attachment_paths)?,
             ],
         )?;
@@ -239,20 +240,16 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::ComposeArgs;
     use crate::output::Format;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     /// Build an isolated App backed by a real on-disk SQLite file inside a
     /// unique temp dir, so `snapshot_draft_attachments` has somewhere to write
     /// its draft-attachments/ tree. Not in-memory because the attachment
     /// snapshotting relies on `db_path.parent()`.
     fn test_app() -> (App, PathBuf) {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!("email-cli-test-{}", nanos));
+        let root = std::env::temp_dir().join(format!("email-cli-test-{}", Uuid::new_v4()));
         fs::create_dir_all(&root).unwrap();
         let db_path = root.join("email-cli.db");
         let app = App::new(db_path, Format::Json).unwrap();
@@ -273,10 +270,121 @@ mod tests {
         (app, root)
     }
 
+    fn empty_compose() -> ComposeArgs {
+        ComposeArgs {
+            account: Some("agent@example.com".into()),
+            to: vec![],
+            cc: vec![],
+            bcc: vec![],
+            subject: String::new(),
+            reply_to_msg: None,
+            text: None,
+            text_file: None,
+            html: None,
+            html_file: None,
+            attachments: vec![],
+        }
+    }
+
     fn write_attachment(dir: &Path, name: &str, body: &[u8]) -> PathBuf {
         let p = dir.join(name);
         fs::write(&p, body).unwrap();
         p
+    }
+
+    fn seed_message(app: &App, id: i64) {
+        app.conn
+            .execute(
+                "INSERT INTO messages (
+                    id, remote_id, direction, account_email, from_addr, to_json, cc_json,
+                    bcc_json, reply_to_json, subject, created_at, raw_json
+                 ) VALUES (
+                    ?1, 'remote-reply-test', 'received', 'agent@example.com',
+                    'sender@example.com', '[\"agent@example.com\"]', '[]', '[]',
+                    '[]', 'hello', '2026-01-01T00:00:00Z', '{}'
+                 )",
+                params![id],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn draft_create_keeps_reply_to_msg_threading() {
+        let (app, root) = test_app();
+        seed_message(&app, 123);
+        let mut compose = empty_compose();
+        compose.reply_to_msg = Some(123);
+        compose.text = Some("reply body".into());
+
+        app.draft_create(DraftCreateArgs {
+            compose,
+            reply_to: None,
+        })
+        .unwrap();
+
+        let drafts = app.list_all_drafts().unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].reply_to_message_id, Some(123));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn draft_create_allows_partial_autosave_states() {
+        let (app, root) = test_app();
+        let mut compose = empty_compose();
+        compose.subject = "only a subject so far".into();
+
+        app.draft_create(DraftCreateArgs {
+            compose,
+            reply_to: None,
+        })
+        .unwrap();
+
+        let drafts = app.list_all_drafts().unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].subject, "only a subject so far");
+        assert!(drafts[0].to.is_empty());
+        assert!(drafts[0].text_body.is_none());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn draft_edit_can_clear_recipients_and_body() {
+        let (app, root) = test_app();
+        let id = "draft-clear-fields".to_string();
+        app.conn
+            .execute(
+                "INSERT INTO drafts (id, account_email, to_json, cc_json, bcc_json,
+                    subject, text_body, html_body, reply_to_message_id,
+                    attachment_paths_json)
+                 VALUES (?1, 'agent@example.com', '[\"old@example.com\"]',
+                    '[\"cc@example.com\"]', '[\"bcc@example.com\"]', 'hi', 'old body',
+                    NULL, NULL, '[]')",
+                params![id],
+            )
+            .unwrap();
+
+        app.draft_edit(DraftEditArgs {
+            id: id.clone(),
+            subject: Some(String::new()),
+            text: Some(String::new()),
+            html: None,
+            to: Some(vec![String::new()]),
+            cc: Some(vec![String::new()]),
+            bcc: Some(vec![String::new()]),
+            account: None,
+            attachments: vec![],
+            clear_attachments: false,
+        })
+        .unwrap();
+
+        let reloaded = app.get_draft(&id).unwrap();
+        assert!(reloaded.to.is_empty());
+        assert!(reloaded.cc.is_empty());
+        assert!(reloaded.bcc.is_empty());
+        assert_eq!(reloaded.subject, "");
+        assert_eq!(reloaded.text_body.as_deref(), Some(""));
+        let _ = fs::remove_dir_all(&root);
     }
 
     /// End-to-end: create a draft with two attachments, then `draft_edit` with
