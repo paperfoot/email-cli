@@ -5,9 +5,10 @@ use crate::app::App;
 use crate::cli::{ComposeArgs, ForwardArgs, ReplyArgs, SendArgs};
 use crate::helpers::{
     append_signature_html, append_signature_text, build_send_attachments,
-    ensure_reply_account_matches, format_forwarded_body, format_sender, forward_subject,
-    generate_message_id, normalize_email, normalize_emails, now_timestamp, read_optional_content,
-    reply_all_recipients, reply_headers_for_message, reply_recipients, reply_subject,
+    ensure_reply_account_matches, escape_html, format_forwarded_body, format_sender,
+    forward_subject, generate_message_id, normalize_email, normalize_emails, now_timestamp,
+    read_optional_content, reply_all_recipients, reply_headers_for_message, reply_recipients,
+    reply_subject, signature_is_html,
 };
 use crate::http::fetch_sent_detail;
 use crate::models::{MessageRecord, ReplyHeaders, ResolvedCompose, SendEmailRequest, SentEmail};
@@ -156,6 +157,7 @@ impl App {
         reply_context: Option<(i64, ReplyHeaders)>,
     ) -> Result<MessageRecord> {
         let client = self.client_for_profile(&compose.account.profile_name)?;
+        let original_text = compose.text.clone();
         let mut text = compose.text.clone();
         let mut html = compose.html.clone();
         if !compose.account.signature.trim().is_empty() {
@@ -168,6 +170,14 @@ impl App {
             if html.is_some() {
                 html = Some(append_signature_html(
                     html.as_deref(),
+                    &compose.account.signature,
+                ));
+            } else if signature_is_html(&compose.account.signature) {
+                let body_html = original_text
+                    .as_deref()
+                    .map(|body| escape_html(body).replace('\n', "<br>"));
+                html = Some(append_signature_html(
+                    body_html.as_deref(),
                     &compose.account.signature,
                 ));
             }

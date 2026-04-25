@@ -134,7 +134,13 @@ pub fn format_sender(display_name: Option<&str>, email: &str) -> String {
 
 pub fn append_signature_text(body: Option<&str>, signature: &str) -> String {
     let body = body.unwrap_or("").trim_end();
-    let signature = signature.trim();
+    let signature_text;
+    let signature = if signature_is_html(signature) {
+        signature_text = html_to_text(signature);
+        signature_text.trim()
+    } else {
+        signature.trim()
+    };
     if body.is_empty() {
         signature.to_string()
     } else {
@@ -144,12 +150,60 @@ pub fn append_signature_text(body: Option<&str>, signature: &str) -> String {
 
 pub fn append_signature_html(body: Option<&str>, signature: &str) -> String {
     let body = body.unwrap_or("").trim_end();
-    let escaped_signature = escape_html(signature).replace('\n', "<br>");
-    if body.is_empty() {
-        escaped_signature
+    let signature_html;
+    let signature = if signature_is_html(signature) {
+        signature.trim()
     } else {
-        format!("{body}<br><br>-- <br>{escaped_signature}")
+        signature_html = escape_html(signature).replace('\n', "<br>");
+        signature_html.as_str()
+    };
+    if body.is_empty() {
+        signature.to_string()
+    } else {
+        format!("{body}<br><br>-- <br>{signature}")
     }
+}
+
+pub fn signature_is_html(value: &str) -> bool {
+    let lower = value.to_ascii_lowercase();
+    [
+        "<a ", "<a>", "<b", "<body", "<br", "<div", "<em", "<html", "<i", "<li", "<ol", "<p",
+        "<span", "<strong", "<table", "<tbody", "<td", "<th", "<tr", "<u",
+    ]
+    .iter()
+    .any(|tag| lower.contains(tag))
+}
+
+pub fn html_to_text(html: &str) -> String {
+    let mut expanded = html
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n");
+    for closing in ["</p>", "</div>", "</li>", "</tr>"] {
+        expanded = expanded.replace(closing, "\n");
+    }
+
+    let mut out = String::with_capacity(expanded.len());
+    let mut in_tag = false;
+    for ch in expanded.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    out.replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub fn escape_html(value: &str) -> String {
@@ -678,3 +732,35 @@ pub fn remove_draft_attachment_snapshot(base_dir: &Path, draft_id: &str) -> Resu
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rich_signature_stays_html_for_html_body() {
+        let signed = append_signature_html(
+            Some("<p>Hello</p>"),
+            r#"<p><strong>Boris</strong><br><a href="https://paperfoot.ai">Paperfoot</a></p>"#,
+        );
+        assert!(signed.contains("<strong>Boris</strong>"));
+        assert!(signed.contains(r#"<a href="https://paperfoot.ai">Paperfoot</a>"#));
+        assert!(!signed.contains("&lt;strong&gt;"));
+    }
+
+    #[test]
+    fn rich_signature_has_text_fallback() {
+        let signed = append_signature_text(
+            Some("Hello"),
+            r#"<p><strong>Boris</strong><br>Paperfoot &amp; Minimail</p>"#,
+        );
+        assert!(signed.contains("Boris"));
+        assert!(signed.contains("Paperfoot & Minimail"));
+        assert!(!signed.contains("<strong>"));
+    }
+
+    #[test]
+    fn plain_signature_is_escaped_for_html_body() {
+        let signed = append_signature_html(Some("<p>Hello</p>"), "Boris <CEO>");
+        assert!(signed.contains("Boris &lt;CEO&gt;"));
+    }
+}

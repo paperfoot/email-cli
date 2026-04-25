@@ -10,9 +10,10 @@ use crate::output::print_success_or;
 impl App {
     pub fn signature_set(&self, args: SignatureSetArgs) -> Result<()> {
         let account = normalize_email(&args.account);
+        let signature = args.html.or(args.text).unwrap_or_default();
         self.conn.execute(
             "UPDATE accounts SET signature = ?1, updated_at = CURRENT_TIMESTAMP WHERE email = ?2",
-            params![args.text, account],
+            params![signature, account],
         )?;
         let updated = self.get_account(&account)?;
 

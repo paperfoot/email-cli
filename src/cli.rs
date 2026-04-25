@@ -207,8 +207,10 @@ pub enum SignatureCommand {
 #[derive(Args)]
 pub struct SignatureSetArgs {
     pub account: String,
-    #[arg(long)]
-    pub text: String,
+    #[arg(long, required_unless_present = "html", conflicts_with = "html")]
+    pub text: Option<String>,
+    #[arg(long, conflicts_with = "text")]
+    pub html: Option<String>,
 }
 
 #[derive(Args)]

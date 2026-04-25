@@ -53,7 +53,7 @@ pub fn run(_format: Format) {
                 "attachments get | show <message_id> <attachment_id>": "Download attachment (--output)",
             },
             "signatures": {
-                "signature set <account>": "Set signature (--text)",
+                "signature set <account>": "Set signature (--text plain text, or --html rich HTML fragment)",
                 "signature show <account>": "Show current signature",
             },
             "domains": {
