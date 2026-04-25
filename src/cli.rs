@@ -222,7 +222,7 @@ pub struct SignatureShowArgs {
 pub struct ComposeArgs {
     #[arg(long, visible_alias = "from")]
     pub account: Option<String>,
-    #[arg(long, required_unless_present = "reply_to_msg")]
+    #[arg(long)]
     pub to: Vec<String>,
     #[arg(long)]
     pub cc: Vec<String>,
