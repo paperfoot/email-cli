@@ -1,8 +1,8 @@
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use rusqlite::params;
 use serde_json::json;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::app::App;
 use crate::cli::{AttachmentGetArgs, AttachmentListArgs, AttachmentPrefetchArgs};
@@ -12,13 +12,16 @@ use crate::output::print_success_or;
 impl App {
     pub fn attachments_list(&self, args: AttachmentListArgs) -> Result<()> {
         let message = self.get_message(args.message_id)?;
-        if message.direction == "received" {
-            let account = self.get_account(&message.account_email)?;
-            let client = self.client_for_profile(&account.profile_name)?;
-            let attachments = client.list_received_attachments(&message.remote_id)?;
-            self.store_received_attachments(message.id, &attachments)?;
+        if let Err(err) = self.refresh_attachment_metadata(&message) {
+            if self.list_attachments(args.message_id)?.is_empty() {
+                return Err(err);
+            }
         }
-        let rows = self.list_attachments(args.message_id)?;
+        let rows = self
+            .list_attachments(args.message_id)?
+            .into_iter()
+            .map(|row| row.into_view())
+            .collect::<Vec<_>>();
 
         print_success_or(self.format, &rows, |rows| {
             for row in rows {
@@ -39,37 +42,47 @@ impl App {
 
     pub fn attachments_get(&self, args: AttachmentGetArgs) -> Result<()> {
         let message = self.get_message(args.message_id)?;
-        if message.direction != "received" {
-            bail!("attachment download is only supported for received messages");
+        let mut attachment = self.find_attachment(args.message_id, &args.attachment_id)?;
+        let has_local_bytes = attachment
+            .as_ref()
+            .and_then(|row| row.local_path.as_deref())
+            .is_some_and(|path| Path::new(path).is_file());
+        if !has_local_bytes {
+            self.refresh_attachment_metadata(&message)?;
+            attachment = self.find_attachment(args.message_id, &args.attachment_id)?;
         }
-        let account = self.get_account(&message.account_email)?;
-        let client = self.client_for_profile(&account.profile_name)?;
-        let attachments = client.list_received_attachments(&message.remote_id)?;
-        self.store_received_attachments(message.id, &attachments)?;
-        let attachment = self
-            .find_attachment(args.message_id, &args.attachment_id)?
-            .ok_or_else(|| anyhow!("attachment {} not found", args.attachment_id))?;
-        let download_url = attachment
-            .download_url
-            .clone()
-            .ok_or_else(|| anyhow!("attachment {} has no download url", args.attachment_id))?;
-        let output_dir = args.output.unwrap_or_else(|| {
-            self.db_path
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join("downloads")
-        });
-        fs::create_dir_all(&output_dir)?;
+        let attachment =
+            attachment.ok_or_else(|| anyhow!("attachment {} not found", args.attachment_id))?;
         let preferred_filename = attachment
             .filename
             .clone()
             .unwrap_or_else(|| format!("attachment-{}", args.attachment_id));
-        let bytes = client.download_attachment(&download_url)?;
-        let output_path = write_file_safely(&output_dir, &preferred_filename, &bytes)?;
-        self.conn.execute(
-            "UPDATE attachments SET local_path = ?1 WHERE id = ?2",
-            params![output_path.display().to_string(), attachment.id],
-        )?;
+        let bytes = if let Some(local_path) = attachment.local_path.as_deref()
+            && Path::new(local_path).is_file()
+        {
+            fs::read(local_path).with_context(|| format!("failed to read cached {local_path}"))?
+        } else {
+            let account = self.get_account(&message.account_email)?;
+            let client = self.client_for_profile(&account.profile_name)?;
+            let download_url = attachment
+                .download_url
+                .clone()
+                .ok_or_else(|| anyhow!("attachment {} has no download url", args.attachment_id))?;
+            client.download_attachment(&download_url)?
+        };
+        let default_dir = self
+            .db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("downloads");
+        let output_path =
+            write_attachment_output(&args, &default_dir, &preferred_filename, &bytes)?;
+        if attachment.local_path.is_none() {
+            self.conn.execute(
+                "UPDATE attachments SET local_path = ?1 WHERE id = ?2",
+                params![output_path.display().to_string(), attachment.id],
+            )?;
+        }
 
         let data = json!({
             "message_id": args.message_id,
@@ -93,15 +106,15 @@ impl App {
         // Step 1 — enumerate candidate messages (one message may have multiple
         // attachments; we dedupe so we only hit Resend's list endpoint once per
         // message).
-        let mut candidates: Vec<(i64, String, String)> = Vec::new();
+        let mut candidates: Vec<(i64, String, String, String)> = Vec::new();
         if let Some(ref account) = args.account {
             let acct = crate::helpers::normalize_email(account);
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT a.message_id, m.remote_id, m.account_email
+                "SELECT DISTINCT a.message_id, m.remote_id, m.account_email, m.direction
                  FROM attachments a
                  JOIN messages m ON a.message_id = m.id
                  WHERE a.local_path IS NULL
-                   AND m.direction = 'received'
+                   AND m.direction IN ('received', 'sent')
                    AND m.account_email = ?1
                  ORDER BY m.created_at DESC
                  LIMIT ?2",
@@ -111,6 +124,7 @@ impl App {
                     r.get::<_, i64>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
                 ))
             })?;
             for row in rows {
@@ -118,11 +132,11 @@ impl App {
             }
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT DISTINCT a.message_id, m.remote_id, m.account_email
+                "SELECT DISTINCT a.message_id, m.remote_id, m.account_email, m.direction
                  FROM attachments a
                  JOIN messages m ON a.message_id = m.id
                  WHERE a.local_path IS NULL
-                   AND m.direction = 'received'
+                   AND m.direction IN ('received', 'sent')
                  ORDER BY m.created_at DESC
                  LIMIT ?1",
             )?;
@@ -131,6 +145,7 @@ impl App {
                     r.get::<_, i64>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
                 ))
             })?;
             for row in rows {
@@ -148,7 +163,7 @@ impl App {
         let mut downloaded = 0usize;
         let mut errors = 0usize;
 
-        for (message_id, remote_id, account_email) in candidates {
+        for (message_id, remote_id, account_email, direction) in candidates {
             let account = match self.get_account(&account_email) {
                 Ok(a) => a,
                 Err(_) => {
@@ -165,8 +180,8 @@ impl App {
             };
 
             // Refresh URLs — Resend's signed download links expire; re-fetching
-            // from /emails/receiving/{id}/attachments yields fresh ones.
-            let fresh = match client.list_received_attachments(&remote_id) {
+            // from the relevant attachments endpoint yields fresh ones.
+            let fresh = match self.fetch_attachment_metadata(&client, &direction, &remote_id) {
                 Ok(list) => list,
                 Err(_) => {
                     errors += 1;
@@ -238,5 +253,101 @@ impl App {
             }
         });
         Ok(())
+    }
+
+    fn refresh_attachment_metadata(&self, message: &crate::models::MessageRecord) -> Result<()> {
+        let account = self.get_account(&message.account_email)?;
+        let client = self.client_for_profile(&account.profile_name)?;
+        let attachments =
+            self.fetch_attachment_metadata(&client, &message.direction, &message.remote_id)?;
+        self.store_received_attachments(message.id, &attachments)?;
+        Ok(())
+    }
+
+    fn fetch_attachment_metadata(
+        &self,
+        client: &crate::resend::ResendClient,
+        direction: &str,
+        remote_id: &str,
+    ) -> Result<Vec<crate::models::ReceivedAttachment>> {
+        match direction {
+            "received" => client.list_received_attachments(remote_id),
+            "sent" => client.list_sent_attachments(remote_id),
+            other => bail!("attachments are not supported for {other} messages"),
+        }
+    }
+}
+
+fn write_attachment_output(
+    args: &AttachmentGetArgs,
+    default_dir: &Path,
+    preferred_filename: &str,
+    bytes: &[u8],
+) -> Result<PathBuf> {
+    if let Some(path) = args.output_file.as_deref() {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(path, bytes).with_context(|| format!("failed to write {}", path.display()))?;
+        return Ok(path.to_path_buf());
+    }
+
+    let output_dir = args
+        .output_dir
+        .as_deref()
+        .or(args.output.as_deref())
+        .unwrap_or(default_dir);
+    fs::create_dir_all(output_dir)?;
+    write_file_safely(output_dir, preferred_filename, bytes)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "email-cli-attachments-test-{}-{name}",
+            uuid::Uuid::new_v4()
+        ))
+    }
+
+    #[test]
+    fn output_file_writes_exact_path() {
+        let dir = temp_path("file");
+        let target = dir.join("renamed.pdf");
+        let args = AttachmentGetArgs {
+            message_id: 1,
+            attachment_id: "att".to_string(),
+            output: None,
+            output_dir: None,
+            output_file: Some(target.clone()),
+        };
+
+        let written =
+            write_attachment_output(&args, &dir.join("default"), "original.pdf", b"pdf").unwrap();
+
+        assert_eq!(written, target);
+        assert_eq!(std::fs::read(&target).unwrap(), b"pdf");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn legacy_output_writes_inside_directory() {
+        let dir = temp_path("dir");
+        let args = AttachmentGetArgs {
+            message_id: 1,
+            attachment_id: "att".to_string(),
+            output: Some(dir.clone()),
+            output_dir: None,
+            output_file: None,
+        };
+
+        let written =
+            write_attachment_output(&args, &dir.join("default"), "original.pdf", b"pdf").unwrap();
+
+        assert_eq!(written, dir.join("original.pdf"));
+        assert_eq!(std::fs::read(&written).unwrap(), b"pdf");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

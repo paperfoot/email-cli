@@ -247,7 +247,8 @@ Minimail makes no network calls of its own; it runs `email-cli send ... --json` 
 All data lives in `~/.local/share/email-cli/email-cli.db` (override with `--db <path>`). Sibling directories:
 
 - `draft-attachments/` -- snapshots of files attached to drafts
-- `downloads/` -- fetched attachments (configurable via `--output`)
+- `sent-attachments/` -- snapshots of files attached to messages sent from this machine
+- `downloads/` -- fetched attachments (use `attachments get --output-dir`, legacy `--output`, or exact `--output-file`)
 
 SQLite runs with WAL mode, busy timeout, and foreign keys enabled.
 

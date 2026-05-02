@@ -194,7 +194,10 @@ impl App {
                     .unwrap_or_default();
                 if from_email == account.email {
                     let detail = client.get_sent_email(&item.id)?;
-                    self.store_sent_message(account, detail, None, None)?;
+                    let record = self.store_sent_message(account, detail, None, None)?;
+                    if let Ok(attachments) = client.list_sent_attachments(&item.id) {
+                        let _ = self.store_received_attachments(record.id, &attachments);
+                    }
                     total += 1;
                 }
             }

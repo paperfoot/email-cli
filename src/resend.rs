@@ -91,6 +91,14 @@ impl ResendClient {
         Ok(payload.data)
     }
 
+    pub fn list_sent_attachments(&self, email_id: &str) -> Result<Vec<ReceivedAttachment>> {
+        let payload: ListResponse<ReceivedAttachment> = self.get_json(
+            &format!("/emails/{}/attachments", urlencoding::encode(email_id)),
+            &[],
+        )?;
+        Ok(payload.data)
+    }
+
     // Domains
     pub fn get_domain(&self, id: &str) -> Result<DomainDetail> {
         self.get_json(&format!("/domains/{}", urlencoding::encode(id)), &[])

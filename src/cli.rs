@@ -623,8 +623,19 @@ pub struct AttachmentListArgs {
 pub struct AttachmentGetArgs {
     pub message_id: i64,
     pub attachment_id: String,
-    #[arg(long)]
+    /// Directory to write into. Kept as the legacy spelling for compatibility.
+    #[arg(long, value_name = "DIR", conflicts_with_all = ["output_dir", "output_file"])]
     pub output: Option<PathBuf>,
+    /// Directory to write into.
+    #[arg(
+        long = "output-dir",
+        value_name = "DIR",
+        conflicts_with = "output_file"
+    )]
+    pub output_dir: Option<PathBuf>,
+    /// Exact file path to write. Existing files are overwritten.
+    #[arg(long = "output-file", value_name = "PATH")]
+    pub output_file: Option<PathBuf>,
 }
 
 #[derive(Args)]

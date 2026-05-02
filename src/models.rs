@@ -113,6 +113,48 @@ pub struct AttachmentRecord {
     pub local_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct AttachmentView {
+    /// Stable identifier accepted by `attachments get`.
+    ///
+    /// Prefer the provider attachment id when present. Locally snapshotted
+    /// sent attachments can exist before Resend's attachment-list endpoint has
+    /// been queried, so their fallback id is the SQLite row id as a string.
+    pub id: String,
+    pub row_id: i64,
+    pub message_id: i64,
+    pub remote_attachment_id: Option<String>,
+    pub filename: Option<String>,
+    pub content_type: Option<String>,
+    pub size: Option<i64>,
+    pub download_url: Option<String>,
+    pub local_path: Option<String>,
+    pub downloaded: bool,
+}
+
+impl AttachmentRecord {
+    pub fn stable_id(&self) -> String {
+        self.remote_attachment_id
+            .clone()
+            .unwrap_or_else(|| self.id.to_string())
+    }
+
+    pub fn into_view(self) -> AttachmentView {
+        AttachmentView {
+            id: self.stable_id(),
+            row_id: self.id,
+            message_id: self.message_id,
+            remote_attachment_id: self.remote_attachment_id,
+            filename: self.filename,
+            content_type: self.content_type,
+            size: self.size,
+            download_url: self.download_url,
+            downloaded: self.local_path.is_some(),
+            local_path: self.local_path,
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct SyncSummary {
     pub profiles: usize,

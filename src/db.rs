@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use rusqlite::{OptionalExtension, params};
+use std::fs;
+use std::path::Path;
 
 use crate::app::App;
 use crate::helpers::{
     effective_received_bcc, effective_received_cc, effective_received_to, from_json,
-    header_references, header_string, normalize_timestamp, to_json,
+    header_references, header_string, normalize_timestamp, to_json, write_file_safely,
 };
 use crate::models::*;
 
@@ -251,12 +253,17 @@ pub fn ensure_outbox_unique_index(conn: &rusqlite::Connection) -> Result<()> {
 /// Other providers may surface a flat `list-unsubscribe` header. We handle
 /// both: return a comma-joined `<url>[, <mailto:...>]` value that matches the
 /// raw RFC-2369 format clients expect.
-fn extract_list_unsubscribe(headers: &std::collections::BTreeMap<String, serde_json::Value>) -> Option<String> {
+fn extract_list_unsubscribe(
+    headers: &std::collections::BTreeMap<String, serde_json::Value>,
+) -> Option<String> {
     use serde_json::Value;
     if let Some(flat) = crate::helpers::header_string(headers, "list-unsubscribe") {
         return Some(flat);
     }
-    let list_val = headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("list")).map(|(_, v)| v)?;
+    let list_val = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("list"))
+        .map(|(_, v)| v)?;
     let parsed: Value = match list_val {
         Value::String(s) => serde_json::from_str(s).ok()?,
         other => other.clone(),
@@ -271,7 +278,11 @@ fn extract_list_unsubscribe(headers: &std::collections::BTreeMap<String, serde_j
     if let Some(m) = mail {
         parts.push(format!("<mailto:{}>", m));
     }
-    if parts.is_empty() { None } else { Some(parts.join(", ")) }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(", "))
+    }
 }
 
 pub fn map_account(row: &rusqlite::Row<'_>) -> rusqlite::Result<AccountRecord> {
@@ -354,12 +365,22 @@ fn build_preview(text: &str) -> String {
     let mut out = String::with_capacity(200);
     for line in text.lines() {
         let trimmed = line.trim();
-        if trimmed.is_empty() { continue; }
-        if trimmed.starts_with('>') { continue; }      // quoted reply
-        if trimmed.starts_with("--") && trimmed.len() < 6 { break; }  // signature delim
-        if !out.is_empty() { out.push(' '); }
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.starts_with('>') {
+            continue;
+        } // quoted reply
+        if trimmed.starts_with("--") && trimmed.len() < 6 {
+            break;
+        } // signature delim
+        if !out.is_empty() {
+            out.push(' ');
+        }
         out.push_str(trimmed);
-        if out.chars().count() > 200 { break; }
+        if out.chars().count() > 200 {
+            break;
+        }
     }
     out.chars().take(160).collect::<String>().trim().to_string()
 }
@@ -582,7 +603,8 @@ impl App {
                 "
                 SELECT id, message_id, remote_attachment_id, filename, content_type, size, download_url, local_path
                 FROM attachments
-                WHERE message_id = ?1 AND remote_attachment_id = ?2
+                WHERE message_id = ?1
+                  AND (remote_attachment_id = ?2 OR CAST(id AS TEXT) = ?2)
                 ",
                 params![message_id, attachment_id],
                 map_attachment,
@@ -709,6 +731,34 @@ impl App {
         attachments: &[ReceivedAttachment],
     ) -> Result<()> {
         for attachment in attachments {
+            if let Some(remote_id) = attachment.id.as_deref() {
+                let reconciled = self.conn.execute(
+                    "
+                    UPDATE attachments
+                    SET remote_attachment_id = ?2,
+                        content_type = ?4,
+                        size = ?5,
+                        download_url = ?6,
+                        raw_json = ?7
+                    WHERE message_id = ?1
+                      AND remote_attachment_id IS NULL
+                      AND ((filename = ?3) OR (filename IS NULL AND ?3 IS NULL))
+                      AND (size = ?5 OR size IS NULL OR ?5 IS NULL)
+                    ",
+                    params![
+                        message_id,
+                        remote_id,
+                        attachment.filename,
+                        attachment.content_type,
+                        attachment.size,
+                        attachment.download_url,
+                        serde_json::to_string(attachment)?,
+                    ],
+                )?;
+                if reconciled > 0 {
+                    continue;
+                }
+            }
             self.conn.execute(
                 "
                 INSERT INTO attachments (
@@ -728,6 +778,55 @@ impl App {
                     attachment.size,
                     attachment.download_url,
                     serde_json::to_string(attachment)?,
+                ],
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn store_sent_attachment_snapshots(
+        &self,
+        message_id: i64,
+        remote_email_id: &str,
+        attachments: &[std::path::PathBuf],
+    ) -> Result<()> {
+        if attachments.is_empty() {
+            return Ok(());
+        }
+        let base = self
+            .db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("sent-attachments")
+            .join(remote_email_id);
+        fs::create_dir_all(&base)?;
+
+        for attachment in attachments {
+            let bytes = fs::read(attachment)
+                .with_context(|| format!("failed to read {}", attachment.display()))?;
+            let filename = attachment
+                .file_name()
+                .and_then(|value| value.to_str())
+                .unwrap_or("attachment.bin")
+                .to_string();
+            let local_path = write_file_safely(&base, &filename, &bytes)?;
+            let raw_json = serde_json::json!({
+                "source_path": attachment.display().to_string(),
+                "local_path": local_path.display().to_string(),
+                "kind": "sent_local_snapshot"
+            });
+            self.conn.execute(
+                "
+                INSERT INTO attachments (
+                    message_id, remote_attachment_id, filename, content_type, size, download_url, local_path, raw_json
+                ) VALUES (?1, NULL, ?2, NULL, ?3, NULL, ?4, ?5)
+                ",
+                params![
+                    message_id,
+                    filename,
+                    bytes.len() as i64,
+                    local_path.display().to_string(),
+                    raw_json.to_string(),
                 ],
             )?;
         }

@@ -250,7 +250,18 @@ impl App {
                         text: request.text.clone(),
                     });
                 let reply_headers = reply_context.map(|(_, reply)| reply);
-                self.store_sent_message(&compose.account, detail, reply_headers, Some(message_id))
+                let stored = self.store_sent_message(
+                    &compose.account,
+                    detail,
+                    reply_headers,
+                    Some(message_id),
+                )?;
+                let _ = self.store_sent_attachment_snapshots(
+                    stored.id,
+                    &stored.remote_id,
+                    &compose.attachments,
+                );
+                Ok(stored)
             }
             Err(err) => {
                 self.outbox_mark_failed(&idempotency_key, &err.to_string())?;

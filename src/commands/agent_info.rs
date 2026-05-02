@@ -53,7 +53,7 @@ pub fn run(_format: Format) {
             },
             "attachments": {
                 "attachments list | ls <message_id>": "List attachments on a message",
-                "attachments get | show <message_id> <attachment_id>": "Download attachment (--output)",
+                "attachments get | show <message_id> <attachment_id>": "Download sent or received attachment (--output-dir/--output for a directory, --output-file for an exact Save As path)",
                 "attachments prefetch": "Download missing attachment bytes into the local cache (--account)",
             },
             "signatures": {
