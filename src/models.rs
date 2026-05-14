@@ -188,10 +188,16 @@ pub struct DomainCapabilities {
 pub struct SendEmailRequest {
     pub from: String,
     pub to: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub cc: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub bcc: Vec<String>,
+    /// Optional Reply-To override. Resend forwards this as the RFC-5322
+    /// Reply-To header so recipient clients route Reply to a different
+    /// mailbox than the sender. Skipped from the wire payload when empty
+    /// to keep the JSON tidy and idempotency-keys stable for prior versions.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub reply_to: Vec<String>,
     pub subject: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
@@ -199,8 +205,13 @@ pub struct SendEmailRequest {
     pub html: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub attachments: Vec<SendAttachment>,
+    /// RFC-3339 or natural-language ("in 1 min", "tomorrow at 9am") send
+    /// time. Resend honours this server-side — the email stays in their
+    /// queue until the wake moment, so the local app can exit immediately.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub scheduled_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -446,10 +457,16 @@ pub struct ResolvedCompose {
     pub to: Vec<String>,
     pub cc: Vec<String>,
     pub bcc: Vec<String>,
+    /// Optional Reply-To override resolved from `--reply-to` flags or
+    /// draft persistence. Empty Vec = inherit account's identity (default).
+    pub reply_to: Vec<String>,
     pub subject: String,
     pub text: Option<String>,
     pub html: Option<String>,
     pub attachments: Vec<PathBuf>,
+    /// Optional Resend `scheduled_at` value. Not persisted to drafts — the
+    /// user picks a schedule at send time, then Resend queues the email.
+    pub scheduled_at: Option<String>,
 }
 
 #[derive(Clone)]

@@ -88,10 +88,12 @@ impl App {
             to,
             cc,
             bcc,
+            reply_to: Vec::new(),
             subject,
             text: read_optional_content(args.text, args.text_file)?,
             html: read_optional_content(args.html, args.html_file)?,
             attachments: args.attachments,
+            scheduled_at: None,
         };
         let headers = reply_headers_for_message(&target);
         let message = self.send_compose(compose, Some((target.id, headers)))?;
@@ -118,10 +120,12 @@ impl App {
             to: normalize_emails(&args.to),
             cc: normalize_emails(&args.cc),
             bcc: normalize_emails(&args.bcc),
+            reply_to: Vec::new(),
             subject,
             text,
             html,
             attachments: Vec::new(),
+            scheduled_at: None,
         };
         // No reply context — forwarding intentionally breaks thread (per RFC)
         let message = self.send_compose(compose, None)?;
@@ -156,10 +160,15 @@ impl App {
             to: normalize_emails(&compose.to),
             cc: normalize_emails(&compose.cc),
             bcc: normalize_emails(&compose.bcc),
+            reply_to: normalize_emails(&compose.reply_to_header),
             subject: compose.subject,
             text,
             html,
             attachments: compose.attachments,
+            scheduled_at: compose
+                .scheduled_at
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
         })
     }
 
@@ -224,11 +233,13 @@ impl App {
             to: compose.to.clone(),
             cc: compose.cc.clone(),
             bcc: compose.bcc.clone(),
+            reply_to: compose.reply_to.clone(),
             subject: compose.subject.clone(),
             text,
             html,
             headers,
             attachments: build_send_attachments(&compose.attachments)?,
+            scheduled_at: compose.scheduled_at.clone(),
         };
         let idempotency_key = self.outbox_send(&request, &compose.account.email)?;
 
@@ -242,7 +253,7 @@ impl App {
                         to: request.to.clone(),
                         cc: request.cc.clone(),
                         bcc: request.bcc.clone(),
-                        reply_to: Vec::new(),
+                        reply_to: request.reply_to.clone(),
                         subject: Some(request.subject.clone()),
                         created_at: Some(now_timestamp()),
                         last_event: Some("sent".to_string()),

@@ -288,11 +288,13 @@ mod tests {
             to: vec!["b@example.com".into()],
             cc: vec![],
             bcc: vec![],
+            reply_to: vec![],
             subject: "hello".into(),
             text: Some("hi".into()),
             html: None,
             headers: None,
             attachments: vec![],
+            scheduled_at: None,
         }
     }
 

@@ -107,6 +107,10 @@ impl App {
             to: draft.to.clone(),
             cc: draft.cc.clone(),
             bcc: draft.bcc.clone(),
+            // Reply-To / scheduled_at aren't persisted to drafts yet — the
+            // user re-enters them at send time. Fine for v1 because both
+            // are uncommon and only matter at the moment of sending.
+            reply_to: Vec::new(),
             subject: draft.subject.clone(),
             text: draft.text_body.clone(),
             html: draft.html_body.clone(),
@@ -115,6 +119,7 @@ impl App {
                 .iter()
                 .map(PathBuf::from)
                 .collect::<Vec<_>>(),
+            scheduled_at: None,
         };
         let message = self.send_compose(compose, reply_context)?;
         self.conn
@@ -278,6 +283,8 @@ mod tests {
             bcc: vec![],
             subject: String::new(),
             reply_to_msg: None,
+            reply_to_header: vec![],
+            scheduled_at: None,
             text: None,
             text_file: None,
             html: None,

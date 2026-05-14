@@ -233,6 +233,19 @@ pub struct ComposeArgs {
     /// Thread this email as a reply to a local message ID
     #[arg(long)]
     pub reply_to_msg: Option<i64>,
+    /// Override the Reply-To header. Recipients who hit Reply will land
+    /// on these addresses instead of the From account — used for shared
+    /// inboxes, mailing-list operators, or no-reply senders that want
+    /// replies to route to a support address. Repeat the flag for multiple
+    /// values; Resend forwards each as an RFC-5322 Reply-To.
+    #[arg(long = "reply-to")]
+    pub reply_to_header: Vec<String>,
+    /// Schedule the send for a future time. Accepts an RFC-3339 timestamp
+    /// ("2026-05-15T14:30:00Z") or one of Resend's natural-language forms
+    /// ("in 1 min", "tomorrow at 9am"). Resend queues the email
+    /// server-side, so nothing local needs to stay running.
+    #[arg(long = "scheduled-at")]
+    pub scheduled_at: Option<String>,
     #[arg(long)]
     pub text: Option<String>,
     #[arg(long)]
