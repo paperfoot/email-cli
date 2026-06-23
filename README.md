@@ -148,7 +148,7 @@ email-cli autostart status            # check if loaded
 email-cli autostart uninstall         # remove
 ```
 
-The LaunchAgent loads immediately (no reboot needed) and restarts the daemon automatically if it exits unexpectedly. Logs go to `/tmp/email-cli-daemon.log`.
+The LaunchAgent loads immediately (no reboot needed) and restarts the daemon automatically if it exits unexpectedly. Logs go to `~/Library/Logs/email-cli/daemon.log`.
 
 ### How notifications work
 
