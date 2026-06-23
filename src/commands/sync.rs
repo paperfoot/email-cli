@@ -52,7 +52,12 @@ impl App {
                 if matches!(self.format, Format::Human) {
                     eprintln!("polling...");
                 }
-                self.sync_once(account_filter.as_deref(), limit, notify)?;
+                // A transient failure (DNS blip, rate limit) must not kill the
+                // poller permanently — log and keep watching, mirroring the
+                // menu-bar daemon's resilient loop.
+                if let Err(e) = self.sync_once(account_filter.as_deref(), limit, notify) {
+                    eprintln!("sync error: {e}");
+                }
             }
         }
 
@@ -99,10 +104,12 @@ impl App {
             })
             .collect();
 
+        let total_accounts = handles.len();
         let mut summary = SyncSummary {
             profiles: unique_profiles.len(),
             sent_messages: 0,
             received_messages: 0,
+            errors: Vec::new(),
         };
         let mut errors: Vec<(String, String)> = Vec::new();
 
@@ -138,7 +145,12 @@ impl App {
             }
         }
 
-        if !errors.is_empty() {
+        // Only hard-fail when EVERY account failed. A single flaky account
+        // used to bail the whole command, discarding the messages that synced
+        // fine for the others (and, in --watch, killing the poller). Partial
+        // failures are surfaced in the summary instead so committed data isn't
+        // reported as a total failure.
+        if !errors.is_empty() && errors.len() == total_accounts {
             let details = errors
                 .iter()
                 .map(|(email, err)| format!("{email}: {err}"))
@@ -147,11 +159,19 @@ impl App {
             bail!("sync failed for {} account(s): {}", errors.len(), details);
         }
 
+        summary.errors = errors
+            .iter()
+            .map(|(email, err)| format!("{email}: {err}"))
+            .collect();
+
         print_success_or(self.format, &summary, |summary| {
             println!(
                 "synced profiles={} sent={} received={}",
                 summary.profiles, summary.sent_messages, summary.received_messages
             );
+            for err in &summary.errors {
+                println!("  partial failure: {err}");
+            }
         });
 
         Ok(())
@@ -249,9 +269,15 @@ impl App {
                 }
                 let from = detail.from.clone().unwrap_or_default();
                 let subject = detail.subject.clone().unwrap_or_default();
-                let message_id = self.store_received_message(account, detail.clone())?;
+                let (message_id, inserted) = self.store_received_message(account, detail.clone())?;
                 self.store_received_attachments(message_id, &detail.attachments)?;
-                new_messages.push((from, subject));
+                // Only notify for genuinely new mail. After a transient
+                // mid-sync failure the cursor doesn't advance, so the next pass
+                // re-walks and re-upserts already-stored messages; gating on
+                // `inserted` stops a duplicate-notification storm.
+                if inserted {
+                    new_messages.push((from, subject));
+                }
                 total += 1;
             }
 

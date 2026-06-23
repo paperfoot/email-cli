@@ -160,6 +160,11 @@ pub struct SyncSummary {
     pub profiles: usize,
     pub sent_messages: usize,
     pub received_messages: usize,
+    /// Per-account failures on a partial sync ("email: error"). Empty on a
+    /// fully-successful run. Omitted from JSON when empty so the existing wire
+    /// shape is unchanged for the common case.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
 }
 
 // ── Resend API types ───────────────────────────────────────────────────────

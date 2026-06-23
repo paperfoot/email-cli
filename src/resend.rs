@@ -45,6 +45,33 @@ impl ResendClient {
         self.post_json("/emails", payload, Some(headers))
     }
 
+    /// Fetch one list page, decoding items individually so a single malformed
+    /// row (e.g. a future Resend payload missing the required `id`) can't fail
+    /// the whole-page decode and wedge the account forever — the cursor only
+    /// advances after a successful page, so a hard decode error would re-fetch
+    /// and re-fail the same first page on every run. Undecodable items are
+    /// logged and skipped.
+    fn list_page_tolerant<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        query: &[(&str, String)],
+        kind: &str,
+    ) -> Result<ListResponse<T>> {
+        let raw: ListResponse<serde_json::Value> = self.get_json(path, query)?;
+        let has_more = raw.has_more;
+        let mut data = Vec::with_capacity(raw.data.len());
+        for value in raw.data {
+            match serde_json::from_value::<T>(value.clone()) {
+                Ok(item) => data.push(item),
+                Err(e) => {
+                    let id = value.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                    eprintln!("skipping undecodable {kind} list item (id={id}): {e}");
+                }
+            }
+        }
+        Ok(ListResponse { data, has_more })
+    }
+
     pub fn list_sent_emails_page(
         &self,
         limit: usize,
@@ -54,7 +81,7 @@ impl ResendClient {
         if let Some(after) = after {
             query.push(("after", after.to_string()));
         }
-        self.get_json("/emails", &query)
+        self.list_page_tolerant("/emails", &query, "sent")
     }
 
     pub fn get_sent_email(&self, id: &str) -> Result<SentEmail> {
@@ -70,7 +97,7 @@ impl ResendClient {
         if let Some(after) = after {
             query.push(("after", after.to_string()));
         }
-        self.get_json("/emails/receiving", &query)
+        self.list_page_tolerant("/emails/receiving", &query, "received")
     }
 
     pub fn get_received_email(&self, id: &str) -> Result<ReceivedEmail> {
