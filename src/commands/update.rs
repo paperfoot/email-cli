@@ -15,10 +15,23 @@ impl App {
     pub fn update(&self, check: bool) -> Result<()> {
         let current = env!("CARGO_PKG_VERSION");
 
+        // Match the published release asset names (email-cli-<ver>-<target>.tar.gz,
+        // see .github/workflows/release.yml + install.sh). self_update's default
+        // target is the full Rust triple (aarch64-apple-darwin), which appears
+        // in NO asset name, so without this `update` always failed with "No
+        // asset found for target" while `update --check` (which never inspects
+        // assets) misleadingly kept working.
+        let target = if cfg!(target_arch = "aarch64") {
+            "arm64-darwin"
+        } else {
+            "x86_64-darwin"
+        };
+
         let updater = self_update::backends::github::Update::configure()
             .repo_owner("paperfoot")
             .repo_name("email-cli")
             .bin_name("email-cli")
+            .target(target)
             .current_version(current)
             .build()?;
 
