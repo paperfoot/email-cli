@@ -684,11 +684,13 @@ impl App {
         })
     }
 
+    /// Store a received message, returning `(id, inserted)` where `inserted`
+    /// is true only when the row is new (not an update of already-synced mail).
     pub fn store_received_message(
         &self,
         account: &AccountRecord,
         email: ReceivedEmail,
-    ) -> Result<i64> {
+    ) -> Result<(i64, bool)> {
         let raw_json = serde_json::to_string(&email)?;
         let created_at = normalize_timestamp(email.created_at.as_deref());
         let headers = email.headers.clone().unwrap_or_default();
@@ -698,7 +700,7 @@ impl App {
         let to = effective_received_to(&email);
         let cc = effective_received_cc(&email);
         let bcc = effective_received_bcc(&email);
-        let record = self.upsert_message(MessageUpsert {
+        let (record, inserted) = self.upsert_message_status(MessageUpsert {
             remote_id: email.id.clone(),
             direction: "received".to_string(),
             account_email: account.email.clone(),
@@ -722,7 +724,7 @@ impl App {
             raw_json,
             list_unsubscribe,
         })?;
-        Ok(record.id)
+        Ok((record.id, inserted))
     }
 
     pub fn store_received_attachments(
@@ -833,7 +835,13 @@ impl App {
         Ok(())
     }
 
-    pub fn upsert_message(&self, payload: MessageUpsert) -> Result<MessageRecord> {
+    /// Upsert a message, returning the row plus whether it was freshly
+    /// INSERTED (`true`) vs UPDATED (`false`). Callers use the flag to fire
+    /// desktop notifications exactly once per message — a transient mid-sync
+    /// failure makes the next pass re-walk and re-upsert already-stored mail,
+    /// and gating notifications on cursor membership (rather than actual
+    /// insertion) re-notified those duplicates on every tick.
+    pub fn upsert_message_status(&self, payload: MessageUpsert) -> Result<(MessageRecord, bool)> {
         let existing_id: Option<i64> = self
             .conn
             .query_row(
@@ -889,7 +897,7 @@ impl App {
                         id,
                     ],
                 )?;
-                self.get_message(id)
+                Ok((self.get_message(id)?, false))
             }
             None => {
                 self.conn.execute(
@@ -923,9 +931,15 @@ impl App {
                     ],
                 )?;
                 let id = self.conn.last_insert_rowid();
-                self.get_message(id)
+                Ok((self.get_message(id)?, true))
             }
         }
+    }
+
+    /// Back-compat wrapper for callers that only need the row, not the
+    /// insert-vs-update status (e.g. sent-message storage).
+    pub fn upsert_message(&self, payload: MessageUpsert) -> Result<MessageRecord> {
+        Ok(self.upsert_message_status(payload)?.0)
     }
 
     // ── Command audit log ──────────────────────────────────────────────────
