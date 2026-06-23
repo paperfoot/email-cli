@@ -8,7 +8,7 @@ pub fn run(_format: Format) {
         "description": "Agent-friendly email CLI for Resend",
 
         "workflow": {
-            "setup": "profile add <name> --api-key <key> → account add <email> --profile <name>",
+            "setup": "profile add <name> --api-key-env RESEND_API_KEY (or pipe the key on stdin) → account add <email> --profile <name>",
             "check_email": "sync [--account <email>] → inbox list [--account <email>]",
             "send_email": "send --to <addr> --subject <subj> --text <body> [--account <from>]",
             "note": "inbox list reads from local DB. Run sync first to fetch new messages from Resend.",
@@ -16,7 +16,7 @@ pub fn run(_format: Format) {
 
         "commands": {
             "setup": {
-                "profile add <name>": "Add Resend API profile (--api-key, --api-key-env, or --api-key-file)",
+                "profile add <name>": "Add Resend API profile. Prefer --api-key-env <VAR>, --api-key-file <path>, or piping the key on stdin; --api-key <key> works but is visible via `ps`",
                 "profile list | ls": "List configured profiles",
                 "profile test <name>": "Test profile by listing domains",
                 "account add <email>": "Register email account (--profile, --name, --default)",

@@ -157,10 +157,15 @@ pub enum ProfileCommand {
 #[derive(Args)]
 pub struct ProfileAddArgs {
     pub name: String,
+    /// Resend API key inline. DISCOURAGED: visible to other processes via `ps`.
+    /// Prefer --api-key-env, --api-key-file, or piping the key on stdin.
     #[arg(long)]
     pub api_key: Option<String>,
+    /// Name of an environment variable holding the key (read from the child env,
+    /// not argv).
     #[arg(long)]
     pub api_key_env: Option<String>,
+    /// Path to a file containing `<NAME>=<key>` lines.
     #[arg(long)]
     pub api_key_file: Option<PathBuf>,
     #[arg(long, default_value = "RESEND_API_KEY")]
