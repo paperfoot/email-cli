@@ -882,6 +882,16 @@ pub struct WebhookListenArgs {
     /// only if `--secret-env` is not set.
     #[arg(long)]
     pub secret_file: Option<String>,
+    /// Name of an environment variable holding the Resend/Svix webhook signing
+    /// secret (`whsec_...` from the Resend dashboard). When set, incoming
+    /// requests must carry valid `svix-id`/`svix-timestamp`/`svix-signature`
+    /// headers — this is the real auth for a public Resend webhook.
+    #[arg(long)]
+    pub signing_secret_env: Option<String>,
+    /// Path to a file whose trimmed contents are the webhook signing secret.
+    /// Used only if `--signing-secret-env` is not set.
+    #[arg(long)]
+    pub signing_secret_file: Option<String>,
 }
 
 // ── Events commands ───────────────────────────────────────────────────────

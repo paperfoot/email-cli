@@ -115,7 +115,7 @@ pub fn run(_format: Format) {
                 "outbox flush": "Retry all pending items",
                 "events list | ls": "View delivery events from the local DB (--message <id>, --limit). Populated by `webhook listen`.",
                 "email list | ls": "List sent emails via Resend GET /emails (--limit 1-100, --after <id>). Each row includes last_event for poll-based delivery checks.",
-                "webhook listen": "Start webhook listener (--host, --port, --secret, --secret-env, --secret-file)",
+                "webhook listen": "Start webhook listener (--host, --port). Auth: --signing-secret-env/-file with the Resend whsec_... secret verifies Svix signatures (recommended); --secret-env/-file adds a coarse X-Webhook-Secret header check",
             },
             "api_keys": {
                 "api-key list | ls": "List API keys",
