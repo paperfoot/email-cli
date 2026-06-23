@@ -16,9 +16,24 @@ impl App {
         if let Some(parent) = db_path.parent() {
             fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
+            // Defense-in-depth: the cache holds full message bodies (and, on
+            // legacy/non-macOS installs without Keychain, the API key). Lock the
+            // data dir to the owner. Best-effort: never block startup on a perms
+            // failure. On macOS the Application Support parent is already 0700,
+            // so this mainly hardens custom paths and non-macOS.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+            }
         }
         let conn = Connection::open(&db_path)
             .with_context(|| format!("failed to open {}", db_path.display()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&db_path, fs::Permissions::from_mode(0o600));
+        }
         conn.execute_batch(crate::db::SCHEMA_DDL)?;
         // Idempotent ALTER TABLE migrations. Each one silently no-ops if the
         // column already exists — SQLite returns "duplicate column" which we

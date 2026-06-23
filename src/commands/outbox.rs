@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use rusqlite::OptionalExtension;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -28,6 +29,10 @@ impl App {
         // the DB wouldn't reject duplicates, so we enforce here. Also guards
         // against the race where two threads try to outbox_send the same
         // request concurrently (identical key, identical hash).
+        // `.optional()?` (not `.ok()`): collapse only QueryReturnedNoRows to
+        // None and propagate genuine DB errors (e.g. SQLITE_BUSY past the
+        // busy_timeout). `.ok()` masked those as "no row" and fell through to
+        // INSERT, weakening the dedup guard on installs without the UNIQUE index.
         let existing: Option<String> = self
             .conn
             .query_row(
@@ -35,7 +40,7 @@ impl App {
                 params![idempotency_key],
                 |row| row.get(0),
             )
-            .ok();
+            .optional()?;
         if existing.is_some() {
             return Ok(idempotency_key);
         }

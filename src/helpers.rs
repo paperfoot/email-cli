@@ -28,6 +28,11 @@ pub fn resolve_api_key(
     if let Some(key) = direct {
         let trimmed = cleanup_env_value(&key);
         if !trimmed.is_empty() {
+            // argv is world-readable via `ps`/lsof for the life of the call.
+            // Keep --api-key working but steer users off it.
+            eprintln!(
+                "warning: --api-key is visible to other processes via `ps`; prefer --api-key-env, --api-key-file, or piping the key on stdin"
+            );
             return Ok(trimmed);
         }
     }
@@ -56,7 +61,25 @@ pub fn resolve_api_key(
         }
         bail!("{} not found in {}", env_name, path.display());
     }
-    bail!("provide one of --api-key, --api-key-env, or --api-key-file")
+    // No explicit source given. When stdin is piped (not a TTY), read the key
+    // from it — an argv-free path so the secret never lands in `ps`-readable
+    // argv (e.g. `printf %s "$KEY" | email-cli profile add work`). Only the
+    // first line is used.
+    use std::io::{IsTerminal, Read};
+    if !std::io::stdin().is_terminal() {
+        let mut buf = String::new();
+        std::io::stdin()
+            .read_to_string(&mut buf)
+            .context("failed to read API key from stdin")?;
+        let cleaned = cleanup_env_value(buf.lines().next().unwrap_or(""));
+        if !cleaned.is_empty() {
+            return Ok(cleaned);
+        }
+        bail!("no API key received on stdin");
+    }
+    bail!(
+        "provide the API key via --api-key-env, --api-key-file, or piped on stdin (avoid --api-key: it is visible to other processes via `ps`)"
+    )
 }
 
 pub fn cleanup_env_value(value: &str) -> String {
