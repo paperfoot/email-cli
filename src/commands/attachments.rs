@@ -70,19 +70,17 @@ impl App {
                 .ok_or_else(|| anyhow!("attachment {} has no download url", args.attachment_id))?;
             client.download_attachment(&download_url)?
         };
-        let default_dir = self
+        // Keep the database pointed at an app-owned copy. Caller-selected
+        // export files are disposable: users can move or edit them without
+        // mutating the bytes future opens use.
+        self.persist_canonical_attachment(&attachment, &preferred_filename, &bytes)?;
+        let default_export_dir = self
             .db_path
             .parent()
             .unwrap_or(Path::new("."))
             .join("downloads");
         let output_path =
-            write_attachment_output(&args, &default_dir, &preferred_filename, &bytes)?;
-        if attachment.local_path.is_none() {
-            self.conn.execute(
-                "UPDATE attachments SET local_path = ?1 WHERE id = ?2",
-                params![output_path.display().to_string(), attachment.id],
-            )?;
-        }
+            write_attachment_output(&args, &default_export_dir, &preferred_filename, &bytes)?;
 
         let data = json!({
             "message_id": args.message_id,
@@ -94,6 +92,36 @@ impl App {
         });
 
         Ok(())
+    }
+
+    fn persist_canonical_attachment(
+        &self,
+        attachment: &crate::models::AttachmentRecord,
+        preferred_filename: &str,
+        bytes: &[u8],
+    ) -> Result<PathBuf> {
+        let cache_dir = self
+            .db_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .join("attachment-cache");
+        let existing_path = attachment.local_path.as_deref().map(Path::new);
+        let cache_path = if existing_path.is_some_and(|path| {
+            path.is_file() && path.parent().is_some_and(|parent| parent == cache_dir)
+        }) {
+            existing_path.expect("checked above").to_path_buf()
+        } else {
+            write_canonical_attachment(&cache_dir, preferred_filename, bytes)?
+        };
+        let stored_path = cache_path.display().to_string();
+
+        if attachment.local_path.as_deref() != Some(stored_path.as_str()) {
+            self.conn.execute(
+                "UPDATE attachments SET local_path = ?1 WHERE id = ?2",
+                params![stored_path, attachment.id],
+            )?;
+        }
+        Ok(cache_path)
     }
 
     /// Eagerly cache any attachment that doesn't have a local file yet. Iterates
@@ -157,7 +185,7 @@ impl App {
             .db_path
             .parent()
             .unwrap_or(Path::new("."))
-            .join("downloads");
+            .join("attachment-cache");
         fs::create_dir_all(&output_dir)?;
 
         let mut downloaded = 0usize;
@@ -278,6 +306,15 @@ impl App {
     }
 }
 
+fn write_canonical_attachment(
+    cache_dir: &Path,
+    preferred_filename: &str,
+    bytes: &[u8],
+) -> Result<PathBuf> {
+    fs::create_dir_all(cache_dir)?;
+    write_file_safely(cache_dir, preferred_filename, bytes)
+}
+
 fn write_attachment_output(
     args: &AttachmentGetArgs,
     default_dir: &Path,
@@ -304,6 +341,8 @@ fn write_attachment_output(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::App;
+    use crate::output::Format;
 
     fn temp_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -349,5 +388,141 @@ mod tests {
         assert_eq!(written, dir.join("original.pdf"));
         assert_eq!(std::fs::read(&written).unwrap(), b"pdf");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn test_app(root: &Path) -> App {
+        let app = App::new(root.join("email-cli.db"), Format::Json).unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO profiles (name, api_key) VALUES ('default', 'test')",
+                [],
+            )
+            .unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO accounts (email, profile_name, is_default)
+                 VALUES ('agent@example.com', 'default', 1)",
+                [],
+            )
+            .unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO messages (
+                    remote_id, direction, account_email, from_addr, to_json,
+                    created_at, raw_json
+                 ) VALUES ('message-1', 'received', 'agent@example.com',
+                    'sender@example.com', '[]', CURRENT_TIMESTAMP, '{}')",
+                [],
+            )
+            .unwrap();
+        app
+    }
+
+    fn seed_attachment(app: &App, filename: &str, local_path: Option<&Path>) -> i64 {
+        app.conn
+            .execute(
+                "INSERT INTO attachments (
+                    message_id, remote_attachment_id, filename, local_path, raw_json
+                 ) VALUES (1, 'attachment-1', ?1, ?2, '{}')",
+                params![filename, local_path.map(|path| path.display().to_string())],
+            )
+            .unwrap();
+        app.conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn exported_copy_edits_do_not_replace_canonical_bytes() {
+        let root = temp_path("owned-cache");
+        fs::create_dir_all(&root).unwrap();
+        let source = root.join("caller-owned-source.pdf");
+        let export = root.join("export.pdf");
+        fs::write(&source, b"original").unwrap();
+        let app = test_app(&root);
+        let row_id = seed_attachment(&app, "report.pdf", Some(&source));
+        let args = AttachmentGetArgs {
+            message_id: 1,
+            attachment_id: "attachment-1".to_string(),
+            output: None,
+            output_dir: None,
+            output_file: Some(export.clone()),
+        };
+
+        app.attachments_get(args).unwrap();
+        let cached: String = app
+            .conn
+            .query_row(
+                "SELECT local_path FROM attachments WHERE id = ?1",
+                [row_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let cached = PathBuf::from(cached);
+        assert_eq!(
+            cached.parent(),
+            Some(root.join("attachment-cache").as_path())
+        );
+        assert_ne!(cached, export);
+        assert_eq!(fs::read(&cached).unwrap(), b"original");
+
+        fs::write(&export, b"edited by caller").unwrap();
+        app.attachments_get(AttachmentGetArgs {
+            message_id: 1,
+            attachment_id: "attachment-1".to_string(),
+            output: None,
+            output_dir: None,
+            output_file: Some(export.clone()),
+        })
+        .unwrap();
+
+        assert_eq!(fs::read(&export).unwrap(), b"original");
+        assert_eq!(fs::read(&cached).unwrap(), b"original");
+        drop(app);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn missing_cache_pointer_is_repaired_to_canonical_storage() {
+        let root = temp_path("missing-cache");
+        fs::create_dir_all(&root).unwrap();
+        let missing = root.join("missing.pdf");
+        let app = test_app(&root);
+        let row_id = seed_attachment(&app, "report.pdf", Some(&missing));
+        let attachment = app.find_attachment(1, "attachment-1").unwrap().unwrap();
+
+        let cached = app
+            .persist_canonical_attachment(&attachment, "report.pdf", b"downloaded")
+            .unwrap();
+        let stored: String = app
+            .conn
+            .query_row(
+                "SELECT local_path FROM attachments WHERE id = ?1",
+                [row_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(PathBuf::from(stored), cached);
+        assert_eq!(
+            cached.parent(),
+            Some(root.join("attachment-cache").as_path())
+        );
+        assert_eq!(fs::read(cached).unwrap(), b"downloaded");
+        drop(app);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn canonical_cache_disambiguates_matching_filenames() {
+        let root = temp_path("duplicate-name");
+        let cache = root.join("attachment-cache");
+        let first = write_canonical_attachment(&cache, "report.pdf", b"first").unwrap();
+        let second = write_canonical_attachment(&cache, "report.pdf", b"second").unwrap();
+
+        assert_ne!(first, second);
+        assert_eq!(first.file_name().unwrap(), "report.pdf");
+        assert_eq!(second.file_name().unwrap(), "report-1.pdf");
+        assert_eq!(fs::read(first).unwrap(), b"first");
+        assert_eq!(fs::read(second).unwrap(), b"second");
+        let _ = fs::remove_dir_all(root);
     }
 }

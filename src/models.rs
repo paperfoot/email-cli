@@ -113,6 +113,8 @@ pub struct AttachmentRecord {
     pub size: Option<i64>,
     pub download_url: Option<String>,
     pub local_path: Option<String>,
+    pub content_id: Option<String>,
+    pub content_disposition: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -131,6 +133,8 @@ pub struct AttachmentView {
     pub size: Option<i64>,
     pub download_url: Option<String>,
     pub local_path: Option<String>,
+    pub content_id: Option<String>,
+    pub content_disposition: Option<String>,
     pub downloaded: bool,
 }
 
@@ -151,6 +155,8 @@ impl AttachmentRecord {
             content_type: self.content_type,
             size: self.size,
             download_url: self.download_url,
+            content_id: self.content_id,
+            content_disposition: self.content_disposition,
             downloaded: self.local_path.is_some(),
             local_path: self.local_path,
         }
@@ -289,6 +295,10 @@ pub struct ReceivedAttachment {
     pub size: Option<i64>,
     #[serde(alias = "downloadUrl")]
     pub download_url: Option<String>,
+    #[serde(alias = "contentId")]
+    pub content_id: Option<String>,
+    #[serde(alias = "contentDisposition")]
+    pub content_disposition: Option<String>,
 }
 
 // ── Domain detail ──────────────────────────────────────────────────────────
@@ -772,5 +782,52 @@ where
         Value::String(value) => Ok(vec![value]),
         Value::Null => Ok(Vec::new()),
         _ => Err(serde::de::Error::custom("expected string array or null")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn received_attachment_decodes_legacy_response_without_inline_metadata() {
+        let attachment: ReceivedAttachment = serde_json::from_value(serde_json::json!({
+            "id": "att_legacy",
+            "filename": "report.pdf",
+            "content_type": "application/pdf",
+            "size": 42,
+            "download_url": "https://example.invalid/report.pdf"
+        }))
+        .unwrap();
+
+        assert_eq!(attachment.id.as_deref(), Some("att_legacy"));
+        assert!(attachment.content_id.is_none());
+        assert!(attachment.content_disposition.is_none());
+    }
+
+    #[test]
+    fn received_attachment_decodes_provider_inline_metadata_and_camel_case_aliases() {
+        let snake_case: ReceivedAttachment = serde_json::from_value(serde_json::json!({
+            "id": "att_inline",
+            "filename": "logo.png",
+            "content_type": "image/png",
+            "content_id": "logo@company",
+            "content_disposition": "inline"
+        }))
+        .unwrap();
+        assert_eq!(snake_case.content_id.as_deref(), Some("logo@company"));
+        assert_eq!(snake_case.content_disposition.as_deref(), Some("inline"));
+
+        let camel_case: ReceivedAttachment = serde_json::from_value(serde_json::json!({
+            "id": "att_alias",
+            "contentId": "hero@company",
+            "contentDisposition": "attachment"
+        }))
+        .unwrap();
+        assert_eq!(camel_case.content_id.as_deref(), Some("hero@company"));
+        assert_eq!(
+            camel_case.content_disposition.as_deref(),
+            Some("attachment")
+        );
     }
 }
