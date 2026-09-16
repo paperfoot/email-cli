@@ -176,11 +176,14 @@ fn dispatch(app: App, command: Command) -> Result<(), CliError> {
             ProfileCommand::Add(args) => app.profile_add(args)?,
             ProfileCommand::List => app.profile_list()?,
             ProfileCommand::Test(args) => app.profile_test(args)?,
+            ProfileCommand::Remove(args) => app.profile_remove(args)?,
         },
         Command::Account { command } => match command {
             AccountCommand::Add(args) => app.account_add(args)?,
             AccountCommand::List => app.account_list()?,
             AccountCommand::Use(args) => app.account_use(args)?,
+            AccountCommand::Edit(args) => app.account_edit(args)?,
+            AccountCommand::Remove(args) => app.account_remove(args)?,
         },
         Command::Signature { command } => match command {
             SignatureCommand::Set(args) => app.signature_set(args)?,

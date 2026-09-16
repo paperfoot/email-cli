@@ -17,9 +17,13 @@ pub fn run(_format: Format) {
         "commands": {
             "setup": {
                 "profile add <name>": "Add Resend API profile. Prefer --api-key-env <VAR>, --api-key-file <path>, or piping the key on stdin; --api-key <key> works but is visible via `ps`",
+                "profile add <name> --validate": "Validate candidate credentials before saving or replacing a profile",
+                "profile remove <name> --yes": "Remove an unused local profile and its stored key; refuses profiles referenced by accounts",
                 "profile list | ls": "List configured profiles",
                 "profile test <name>": "Test profile by listing domains",
                 "account add <email>": "Register email account (--profile, --name, --default)",
+                "account edit <email>": "Edit --name and/or --profile; omitted fields stay unchanged and unchanged-profile name edits work offline",
+                "account remove <email> --yes": "Remove local account, cached messages, drafts, sync state, and completed outbox rows. Refuses unfinished outbox items; remote mailbox is unchanged",
                 "account list | ls": "List configured accounts",
                 "account use <email>": "Set the default sending account",
             },

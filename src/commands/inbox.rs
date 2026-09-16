@@ -50,24 +50,44 @@ fn normalize_subject(subject: &str) -> String {
     // per iteration and re-checks until nothing matches.
     const PREFIXES: &[&str] = &[
         // English / generic
-        "re:", "re :", "fwd:", "fw:", "fwd :", "fw :",
+        "re:",
+        "re :",
+        "fwd:",
+        "fw:",
+        "fwd :",
+        "fw :",
         // German
-        "aw:", "wg:", "antwort:", "weiterleitung:",
+        "aw:",
+        "wg:",
+        "antwort:",
+        "weiterleitung:",
         // Spanish
-        "rv:", "ref:",
+        "rv:",
+        "ref:",
         // French
-        "tr:", "rép:", "rep:",
+        "tr:",
+        "rép:",
+        "rep:",
         // Portuguese
-        "enc:", "res:",
+        "enc:",
+        "res:",
         // Polish
-        "odp:", "pd:",
+        "odp:",
+        "pd:",
         // Italian
-        "r:", "i:", "rif:",
+        "r:",
+        "i:",
+        "rif:",
         // Dutch (overlap with German aw:)
         // CJK
-        "回复:", "回覆:", "答复:",  // Chinese
-        "返信:", "転送:", "fwd：",  // Japanese (full-width colon variant)
-        "회신:", "전달:",            // Korean
+        "回复:",
+        "回覆:",
+        "答复:", // Chinese
+        "返信:",
+        "転送:",
+        "fwd：", // Japanese (full-width colon variant)
+        "회신:",
+        "전달:", // Korean
     ];
 
     let mut s = subject.trim().to_string();
@@ -81,7 +101,9 @@ fn normalize_subject(subject: &str) -> String {
                 break;
             }
         }
-        if stripped { continue }
+        if stripped {
+            continue;
+        }
 
         // Numbered reply: "Re[2]:", "Re(3):", "Re²:", etc.
         let lower = s.to_lowercase();
@@ -93,8 +115,9 @@ fn normalize_subject(subject: &str) -> String {
                 let middle_trim = middle.trim();
                 let is_numbered = middle_trim.starts_with('[') && middle_trim.ends_with(']')
                     || middle_trim.starts_with('(') && middle_trim.ends_with(')')
-                    || middle_trim.chars().all(|c| c.is_ascii_digit()
-                        || ['²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'].contains(&c))
+                    || middle_trim.chars().all(|c| {
+                        c.is_ascii_digit() || ['²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'].contains(&c)
+                    })
                     || middle_trim.is_empty();
                 if is_numbered {
                     s = s[2 + colon + 1..].trim_start().to_string();
@@ -102,7 +125,9 @@ fn normalize_subject(subject: &str) -> String {
                 }
             }
         }
-        if stripped { continue }
+        if stripped {
+            continue;
+        }
 
         // Strip leading `[...]` bracket tag — handles stacked tags like
         // `[EXT][URGENT] subject` because the loop re-runs.
@@ -113,7 +138,9 @@ fn normalize_subject(subject: &str) -> String {
                 stripped = true;
             }
         }
-        if !stripped { break }
+        if !stripped {
+            break;
+        }
     }
     s.to_lowercase().trim().to_string()
 }
@@ -135,8 +162,7 @@ fn parse_wake_time(raw: &str) -> Result<chrono::DateTime<Utc>> {
     match trimmed.as_str() {
         "tonight" => {
             let today_local = Local::now().date_naive();
-            let wake = today_local
-                .and_time(NaiveTime::from_hms_opt(19, 0, 0).unwrap());
+            let wake = today_local.and_time(NaiveTime::from_hms_opt(19, 0, 0).unwrap());
             let local = Local
                 .from_local_datetime(&wake)
                 .single()
@@ -145,8 +171,7 @@ fn parse_wake_time(raw: &str) -> Result<chrono::DateTime<Utc>> {
         }
         "tomorrow" => {
             let tomorrow_local = Local::now().date_naive().succ_opt().unwrap();
-            let wake = tomorrow_local
-                .and_time(NaiveTime::from_hms_opt(9, 0, 0).unwrap());
+            let wake = tomorrow_local.and_time(NaiveTime::from_hms_opt(9, 0, 0).unwrap());
             let local = Local
                 .from_local_datetime(&wake)
                 .single()
@@ -191,7 +216,10 @@ fn parse_wake_time(raw: &str) -> Result<chrono::DateTime<Utc>> {
         return Ok(parsed.with_timezone(&Utc));
     }
 
-    anyhow::bail!("couldn't parse snooze time '{}' — try tomorrow, tonight, 4h, 2d, or an ISO timestamp", raw)
+    anyhow::bail!(
+        "couldn't parse snooze time '{}' — try tomorrow, tonight, 4h, 2d, or an ISO timestamp",
+        raw
+    )
 }
 
 fn strip_ansi(text: &str) -> String {
@@ -692,14 +720,16 @@ impl App {
             // counterpart, AND received messages from the seed's recipients
             // (covers the "different person on the other side replied" case).
             let bare_seed_from = extract_bare_email(&seed.from_addr);
-            let seed_to_bare: Vec<String> = seed.to.iter()
+            let seed_to_bare: Vec<String> = seed
+                .to
+                .iter()
                 .map(|t| extract_bare_email(t))
                 .filter(|s| !s.is_empty())
                 .collect();
             // 90 days in either direction. Long enough for stale threads to
             // catch up; short enough that "Re: Update" from a year ago
             // doesn't get pulled in.
-            let cutoff_low = seed_created.clone();  // ISO-8601 lex compare works
+            let cutoff_low = seed_created.clone(); // ISO-8601 lex compare works
             let cutoff_high = seed_created.clone();
 
             let cand_sql = "SELECT m.id, m.remote_id, m.direction, m.account_email, m.from_addr, m.to_json, m.cc_json,
@@ -721,11 +751,15 @@ impl App {
                 .filter(|cand| {
                     // Subject signal — either side may have extra prefixes.
                     let cand_subj = normalize_subject(&cand.subject);
-                    if cand_subj.is_empty() { return false }
+                    if cand_subj.is_empty() {
+                        return false;
+                    }
                     let subject_match = cand_subj == normalised_seed
                         || normalised_seed.contains(&cand_subj)
                         || cand_subj.contains(&normalised_seed);
-                    if !subject_match { return false }
+                    if !subject_match {
+                        return false;
+                    }
 
                     // Participant signal. We match at TWO granularities:
                     //   (a) exact bare-email overlap — the strongest signal
@@ -738,25 +772,26 @@ impl App {
                     // window + subject normalisation already restrict scope.
                     let cand_from_bare = extract_bare_email(&cand.from_addr);
                     let cand_from_domain = email_domain(&cand_from_bare);
-                    let cand_to_bare: Vec<String> = cand.to.iter()
-                        .map(|t| extract_bare_email(t))
-                        .collect();
-                    let cand_to_domains: Vec<String> = cand_to_bare
-                        .iter().map(|s| email_domain(s)).collect();
+                    let cand_to_bare: Vec<String> =
+                        cand.to.iter().map(|t| extract_bare_email(t)).collect();
+                    let cand_to_domains: Vec<String> =
+                        cand_to_bare.iter().map(|s| email_domain(s)).collect();
 
                     let seed_from_domain = email_domain(&bare_seed_from);
-                    let seed_to_domains: Vec<String> = seed_to_bare
-                        .iter().map(|s| email_domain(s)).collect();
+                    let seed_to_domains: Vec<String> =
+                        seed_to_bare.iter().map(|s| email_domain(s)).collect();
 
-                    let exact_overlap =
-                        cand_to_bare.iter().any(|t| t.eq_ignore_ascii_case(&bare_seed_from))
-                        || seed_to_bare.iter().any(|t| t.eq_ignore_ascii_case(&cand_from_bare))
+                    let exact_overlap = cand_to_bare
+                        .iter()
+                        .any(|t| t.eq_ignore_ascii_case(&bare_seed_from))
+                        || seed_to_bare
+                            .iter()
+                            .any(|t| t.eq_ignore_ascii_case(&cand_from_bare))
                         || cand_from_bare.eq_ignore_ascii_case(&bare_seed_from);
 
-                    let domain_overlap = !cand_from_domain.is_empty() && (
-                        seed_to_domains.iter().any(|d| d == &cand_from_domain)
-                        || cand_to_domains.iter().any(|d| d == &seed_from_domain)
-                    );
+                    let domain_overlap = !cand_from_domain.is_empty()
+                        && (seed_to_domains.iter().any(|d| d == &cand_from_domain)
+                            || cand_to_domains.iter().any(|d| d == &seed_from_domain));
 
                     exact_overlap || domain_overlap
                 });
@@ -797,7 +832,9 @@ impl App {
             || args.starred
             || args.account.is_some();
         if !has_any_filter {
-            bail!("inbox search needs a query or at least one filter flag (--from, --subject, --has-attachment, --unread, --starred, --account)");
+            bail!(
+                "inbox search needs a query or at least one filter flag (--from, --subject, --has-attachment, --unread, --starred, --account)"
+            );
         }
 
         let mut joins = String::new();
@@ -826,9 +863,8 @@ impl App {
             param_vals.push(Box::new(format!("%{}%", subj)));
         }
         if args.has_attachment {
-            conditions.push(
-                "EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)".to_string(),
-            );
+            conditions
+                .push("EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)".to_string());
         }
         if args.unread {
             conditions.push("m.is_read = 0".to_string());
@@ -850,7 +886,8 @@ impl App {
         );
         param_vals.push(Box::new(args.limit as i64));
 
-        let refs: Vec<&dyn rusqlite::types::ToSql> = param_vals.iter().map(|p| p.as_ref()).collect();
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            param_vals.iter().map(|p| p.as_ref()).collect();
         let mut stmt = self.conn.prepare(&sql)?;
         let rows = stmt.query_map(refs.as_slice(), crate::db::map_summary)?;
         let messages: Vec<_> = rows.collect::<std::result::Result<Vec<_>, _>>()?;
@@ -969,13 +1006,16 @@ impl App {
         let wake = parse_wake_time(&args.until)?;
         let wake_iso = wake.to_rfc3339();
 
-        let placeholders: Vec<String> = (1..=args.ids.len()).map(|i| format!("?{}", i + 1)).collect();
+        let placeholders: Vec<String> = (1..=args.ids.len())
+            .map(|i| format!("?{}", i + 1))
+            .collect();
         let ph = placeholders.join(",");
         let sql = format!(
             "UPDATE messages SET snoozed_until = ?1 WHERE id IN ({})",
             ph
         );
-        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::with_capacity(args.ids.len() + 1);
+        let mut params: Vec<Box<dyn rusqlite::types::ToSql>> =
+            Vec::with_capacity(args.ids.len() + 1);
         params.push(Box::new(wake_iso.clone()));
         for id in &args.ids {
             params.push(Box::new(*id));
@@ -1027,12 +1067,18 @@ impl App {
             params![args.id],
             |row| row.get(0),
         )?;
-        let header = unsub.ok_or_else(|| anyhow::anyhow!("no List-Unsubscribe header on message {}", args.id))?;
+        let header = unsub
+            .ok_or_else(|| anyhow::anyhow!("no List-Unsubscribe header on message {}", args.id))?;
         // Extract the first URL or mailto: from the header value. Raw form:
         // `<https://...>, <mailto:...>` — strip angle brackets.
         let url = header
             .split(',')
-            .map(|s| s.trim().trim_start_matches('<').trim_end_matches('>').trim())
+            .map(|s| {
+                s.trim()
+                    .trim_start_matches('<')
+                    .trim_end_matches('>')
+                    .trim()
+            })
             .find(|s| s.starts_with("http") || s.starts_with("mailto:"))
             .map(|s| s.to_string())
             .unwrap_or_else(|| header.clone());

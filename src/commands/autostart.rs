@@ -159,7 +159,8 @@ impl App {
         let domain = gui_domain();
         let target = service_target();
         launchctl_silent(&["bootout", &target]);
-        std::fs::write(&path, plist).with_context(|| format!("failed to write {}", path.display()))?;
+        std::fs::write(&path, plist)
+            .with_context(|| format!("failed to write {}", path.display()))?;
         launchctl(&["bootstrap", &domain, &path.to_string_lossy()])?;
         // Start now so the daemon comes up without waiting for the next login.
         launchctl_silent(&["kickstart", "-k", &target]);
@@ -189,11 +190,9 @@ impl App {
     pub fn autostart_uninstall(&self) -> Result<()> {
         let path = plist_path()?;
         if !path.exists() {
-            print_success_or(
-                self.format,
-                &json!({"status": "not_installed"}),
-                |_| println!("LaunchAgent not installed"),
-            );
+            print_success_or(self.format, &json!({"status": "not_installed"}), |_| {
+                println!("LaunchAgent not installed")
+            });
             return Ok(());
         }
         launchctl_silent(&["bootout", &service_target()]);

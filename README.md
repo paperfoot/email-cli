@@ -23,7 +23,7 @@ A single binary that gives your AI agent a real email address. Send, receive, re
 
 Works inside any agent harness that can invoke a CLI: Claude Code, Cursor, Warp, Codex, Gemini CLI, plain shell scripts. One Resend API key is the only external requirement.
 
-Pair it with [**Minimail**](https://github.com/paperfoot/minimail-mac) — a macOS menu bar GUI that shells out to this CLI — if you also want a five-second visual peek at the inbox.
+Pair it with [**Minimail**](https://github.com/paperfoot/minimail-mac) — a macOS menu bar GUI that shells out to this CLI — for a compact inbox that expands into a full desktop mail window.
 
 [Why](#why) | [Install](#install) | [How It Works](#how-it-works) | [Commands](#commands) | [Agent Integration](#agent-integration) | [Companion App](#companion-app-minimail) | [Configuration](#configuration) | [Contributing](#contributing)
 
@@ -232,8 +232,8 @@ Email CLI is the agent-facing half of a two-component product. The human-facing 
 
 |  | Email CLI | Minimail |
 |---|---|---|
-| Interface | Terminal, structured JSON | SwiftUI popover, 420×580 |
-| Audience | AI agents, automation, scripting | Humans who want a quick visual peek |
+| Interface | Terminal, structured JSON | SwiftUI popover and resizable mail window |
+| Audience | AI agents, automation, scripting | Humans reading and composing mail |
 | Platforms | macOS, Linux, Windows | macOS 26 only |
 | License | MIT | Proprietary (paid app, coming soon) |
 | Required? | Yes, for everything | No — purely optional |
@@ -252,9 +252,21 @@ All data lives in `~/.local/share/email-cli/email-cli.db` (override with `--db <
 
 SQLite runs with WAL mode, busy timeout, and foreign keys enabled.
 
+### Account maintenance
+
+```bash
+email-cli account edit agent@yourdomain.com --name "Agent Name"
+email-cli account use agent@yourdomain.com
+email-cli profile add default --api-key-env RESEND_API_KEY --validate
+email-cli account remove old@yourdomain.com --yes
+email-cli profile remove unused-profile --yes
+```
+
+Changing an account profile validates its domain with Resend. Local display-name edits work offline. Account removal deletes that account's local messages, drafts, sync state, and completed delivery records; it refuses unfinished Outbox items and leaves the remote mailbox unchanged. Removing a profile is allowed only after its accounts have been removed or moved. Downloaded files are retained; arbitrary attachment paths are never deleted by account removal.
+
 ### Security
 
-- API keys live in the local SQLite database. Treat `email-cli.db` as sensitive.
+- On macOS, new profile keys are stored in Keychain; legacy and non-macOS configurations may store keys in SQLite. Treat `email-cli.db` as sensitive.
 - Prefer `--api-key-env VAR_NAME` or `--api-key-file path` over passing keys directly.
 - Attachment filenames are sanitized before writing to disk.
 - Every send is written to a durable outbox with a stable `Idempotency-Key` before delivery is attempted; retry with `outbox retry` or `outbox flush`.

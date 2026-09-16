@@ -269,7 +269,8 @@ impl App {
                 }
                 let from = detail.from.clone().unwrap_or_default();
                 let subject = detail.subject.clone().unwrap_or_default();
-                let (message_id, inserted) = self.store_received_message(account, detail.clone())?;
+                let (message_id, inserted) =
+                    self.store_received_message(account, detail.clone())?;
                 self.store_received_attachments(message_id, &detail.attachments)?;
                 // Only notify for genuinely new mail. After a transient
                 // mid-sync failure the cursor doesn't advance, so the next pass
