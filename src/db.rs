@@ -428,6 +428,10 @@ pub fn map_draft(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
 }
 
 pub fn map_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentRecord> {
+    let provider_metadata = row
+        .get::<_, Option<String>>(8)?
+        .and_then(|raw_json| serde_json::from_str::<ReceivedAttachment>(&raw_json).ok())
+        .unwrap_or_default();
     Ok(AttachmentRecord {
         id: row.get(0)?,
         message_id: row.get(1)?,
@@ -437,6 +441,8 @@ pub fn map_attachment(row: &rusqlite::Row<'_>) -> rusqlite::Result<AttachmentRec
         size: row.get(5)?,
         download_url: row.get(6)?,
         local_path: row.get(7)?,
+        content_id: provider_metadata.content_id,
+        content_disposition: provider_metadata.content_disposition,
     })
 }
 
@@ -610,7 +616,7 @@ impl App {
     pub fn list_attachments(&self, message_id: i64) -> Result<Vec<AttachmentRecord>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, message_id, remote_attachment_id, filename, content_type, size, download_url, local_path
+            SELECT id, message_id, remote_attachment_id, filename, content_type, size, download_url, local_path, raw_json
             FROM attachments
             WHERE message_id = ?1
             ORDER BY id
@@ -629,7 +635,7 @@ impl App {
         self.conn
             .query_row(
                 "
-                SELECT id, message_id, remote_attachment_id, filename, content_type, size, download_url, local_path
+                SELECT id, message_id, remote_attachment_id, filename, content_type, size, download_url, local_path, raw_json
                 FROM attachments
                 WHERE message_id = ?1
                   AND (remote_attachment_id = ?2 OR CAST(id AS TEXT) = ?2)
@@ -1100,6 +1106,79 @@ mod tests {
             assert!(draft.scheduled_at.is_none());
         }
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn attachment_inline_metadata_round_trips_through_raw_json_and_view() {
+        let root =
+            std::env::temp_dir().join(format!("email-cli-attachment-meta-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let app = App::new(root.join("email-cli.db"), Format::Json).unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO profiles (name, api_key) VALUES ('default', 'test-key')",
+                [],
+            )
+            .unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO accounts (email, profile_name, is_default)
+                 VALUES ('agent@example.com', 'default', 1)",
+                [],
+            )
+            .unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO messages (
+                    remote_id, direction, account_email, from_addr, to_json,
+                    created_at, raw_json
+                 ) VALUES ('message-1', 'received', 'agent@example.com',
+                    'sender@example.com', '[]', CURRENT_TIMESTAMP, '{}')",
+                [],
+            )
+            .unwrap();
+
+        let provider_attachment: ReceivedAttachment = serde_json::from_value(serde_json::json!({
+            "id": "att_inline",
+            "filename": "logo.png",
+            "content_type": "image/png",
+            "size": 100,
+            "download_url": "https://example.invalid/logo.png",
+            "content_id": "logo@company",
+            "content_disposition": "inline"
+        }))
+        .unwrap();
+        app.store_received_attachments(1, &[provider_attachment])
+            .unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO attachments (
+                    message_id, remote_attachment_id, filename, raw_json
+                 ) VALUES (1, 'att_malformed', 'old.bin', 'not-json')",
+                [],
+            )
+            .unwrap();
+
+        let attachments = app.list_attachments(1).unwrap();
+        let inline = attachments
+            .iter()
+            .find(|attachment| attachment.remote_attachment_id.as_deref() == Some("att_inline"))
+            .unwrap();
+        assert_eq!(inline.content_id.as_deref(), Some("logo@company"));
+        assert_eq!(inline.content_disposition.as_deref(), Some("inline"));
+        let view_json = serde_json::to_value(inline.clone().into_view()).unwrap();
+        assert_eq!(view_json["content_id"], "logo@company");
+        assert_eq!(view_json["content_disposition"], "inline");
+
+        let malformed = attachments
+            .iter()
+            .find(|attachment| attachment.remote_attachment_id.as_deref() == Some("att_malformed"))
+            .unwrap();
+        assert!(malformed.content_id.is_none());
+        assert!(malformed.content_disposition.is_none());
+
+        drop(app);
         let _ = fs::remove_dir_all(root);
     }
 }
