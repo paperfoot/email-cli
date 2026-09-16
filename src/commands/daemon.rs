@@ -117,10 +117,7 @@ fn refresh_display(syncing: bool) {
 
         let text = if syncing {
             if total > 0 {
-                format!(
-                    "Syncing {}/{} \u{00b7} {}",
-                    done, total, ui.account_label
-                )
+                format!("Syncing {}/{} \u{00b7} {}", done, total, ui.account_label)
             } else {
                 format!("Syncing\u{2026} \u{00b7} {}", ui.account_label)
             }

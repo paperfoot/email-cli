@@ -41,9 +41,9 @@ mod mac {
             Ok(()) => Ok(()),
             // Not-found is fine; nothing to clean up.
             Err(e) if e.code() == -25300 => Ok(()),
-            Err(e) => Err(e).with_context(|| {
-                format!("keychain: delete key for profile {profile_name}")
-            }),
+            Err(e) => {
+                Err(e).with_context(|| format!("keychain: delete key for profile {profile_name}"))
+            }
         }
     }
 

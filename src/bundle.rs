@@ -18,8 +18,7 @@ use std::path::{Path, PathBuf};
 #[cfg(target_os = "macos")]
 const INFO_PLIST: &[u8] = include_bytes!("../assets/EmailCLI.app/Contents/Info.plist");
 #[cfg(target_os = "macos")]
-const HELPER_BIN: &[u8] =
-    include_bytes!("../assets/EmailCLI.app/Contents/MacOS/email-cli-notify");
+const HELPER_BIN: &[u8] = include_bytes!("../assets/EmailCLI.app/Contents/MacOS/email-cli-notify");
 #[cfg(target_os = "macos")]
 const APP_ICON: &[u8] = include_bytes!("../assets/EmailCLI.app/Contents/Resources/AppIcon.icns");
 #[cfg(target_os = "macos")]

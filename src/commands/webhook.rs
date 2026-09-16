@@ -93,7 +93,10 @@ impl App {
                 };
                 if !authorized {
                     if matches!(self.format, Format::Human) {
-                        eprintln!("rejected request: missing or invalid {}", WEBHOOK_SECRET_HEADER);
+                        eprintln!(
+                            "rejected request: missing or invalid {}",
+                            WEBHOOK_SECRET_HEADER
+                        );
                     }
                     let response =
                         tiny_http::Response::from_string("unauthorized").with_status_code(401);
@@ -435,7 +438,14 @@ mod tests {
         let secret = test_secret();
         let (id, ts, body) = ("msg_1", "1700000000", r#"{"type":"email.received"}"#);
         let sig = sign(&secret, id, ts, body);
-        assert!(!verify_svix(&secret, id, ts, &sig, r#"{"type":"forged"}"#, 1700000000));
+        assert!(!verify_svix(
+            &secret,
+            id,
+            ts,
+            &sig,
+            r#"{"type":"forged"}"#,
+            1700000000
+        ));
     }
 
     #[test]

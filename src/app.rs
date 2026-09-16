@@ -43,10 +43,8 @@ impl App {
             .execute_batch("ALTER TABLE messages ADD COLUMN archived INTEGER NOT NULL DEFAULT 0;");
         let _ = conn
             .execute_batch("ALTER TABLE messages ADD COLUMN starred INTEGER NOT NULL DEFAULT 0;");
-        let _ = conn
-            .execute_batch("ALTER TABLE messages ADD COLUMN snoozed_until TEXT;");
-        let _ = conn
-            .execute_batch("ALTER TABLE messages ADD COLUMN list_unsubscribe TEXT;");
+        let _ = conn.execute_batch("ALTER TABLE messages ADD COLUMN snoozed_until TEXT;");
+        let _ = conn.execute_batch("ALTER TABLE messages ADD COLUMN list_unsubscribe TEXT;");
         let _ = conn.execute_batch(
             "CREATE INDEX IF NOT EXISTS idx_messages_archived ON messages(archived, created_at DESC);
              CREATE INDEX IF NOT EXISTS idx_messages_starred ON messages(starred, created_at DESC);
@@ -82,8 +80,12 @@ impl App {
 
         for result in rows {
             let Ok((id, raw_json)) = result else { continue };
-            let Ok(parsed) = serde_json::from_str::<Value>(&raw_json) else { continue };
-            let Some(headers) = parsed.get("headers").and_then(|v| v.as_object()) else { continue };
+            let Ok(parsed) = serde_json::from_str::<Value>(&raw_json) else {
+                continue;
+            };
+            let Some(headers) = parsed.get("headers").and_then(|v| v.as_object()) else {
+                continue;
+            };
 
             // Try flat `list-unsubscribe` first.
             let mut value: Option<String> = None;
@@ -108,9 +110,15 @@ impl App {
                         let url = unsub.get("url").and_then(|v| v.as_str());
                         let mail = unsub.get("mail").and_then(|v| v.as_str());
                         let mut parts: Vec<String> = Vec::new();
-                        if let Some(u) = url { parts.push(format!("<{}>", u)); }
-                        if let Some(m) = mail { parts.push(format!("<mailto:{}>", m)); }
-                        if !parts.is_empty() { value = Some(parts.join(", ")); }
+                        if let Some(u) = url {
+                            parts.push(format!("<{}>", u));
+                        }
+                        if let Some(m) = mail {
+                            parts.push(format!("<mailto:{}>", m));
+                        }
+                        if !parts.is_empty() {
+                            value = Some(parts.join(", "));
+                        }
                     }
                 }
             }

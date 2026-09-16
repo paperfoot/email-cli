@@ -152,6 +152,7 @@ pub enum ProfileCommand {
     #[command(visible_alias = "ls")]
     List,
     Test(ProfileTestArgs),
+    Remove(ProfileRemoveArgs),
 }
 
 #[derive(Args)]
@@ -170,11 +171,22 @@ pub struct ProfileAddArgs {
     pub api_key_file: Option<PathBuf>,
     #[arg(long, default_value = "RESEND_API_KEY")]
     pub api_key_name: String,
+    /// Verify the candidate API key against Resend before saving it.
+    #[arg(long)]
+    pub validate: bool,
 }
 
 #[derive(Args)]
 pub struct ProfileTestArgs {
     pub name: String,
+}
+
+#[derive(Args)]
+pub struct ProfileRemoveArgs {
+    pub name: String,
+    /// Confirm removal of this local profile configuration.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Subcommand)]
@@ -183,6 +195,8 @@ pub enum AccountCommand {
     #[command(visible_alias = "ls")]
     List,
     Use(AccountUseArgs),
+    Edit(AccountEditArgs),
+    Remove(AccountRemoveArgs),
 }
 
 #[derive(Args)]
@@ -201,6 +215,25 @@ pub struct AccountAddArgs {
 #[derive(Args)]
 pub struct AccountUseArgs {
     pub email: String,
+}
+
+#[derive(Args)]
+pub struct AccountEditArgs {
+    pub email: String,
+    /// Change the local display name. Pass an empty value to clear it.
+    #[arg(long)]
+    pub name: Option<String>,
+    /// Move the account to another configured profile after domain validation.
+    #[arg(long)]
+    pub profile: Option<String>,
+}
+
+#[derive(Args)]
+pub struct AccountRemoveArgs {
+    pub email: String,
+    /// Confirm removal of this account and its local cached mail.
+    #[arg(long)]
+    pub yes: bool,
 }
 
 #[derive(Subcommand)]
