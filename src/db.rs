@@ -68,10 +68,12 @@ pub const SCHEMA_DDL: &str = "
         to_json TEXT NOT NULL,
         cc_json TEXT NOT NULL DEFAULT '[]',
         bcc_json TEXT NOT NULL DEFAULT '[]',
+        reply_to_json TEXT NOT NULL DEFAULT '[]',
         subject TEXT NOT NULL DEFAULT '',
         text_body TEXT,
         html_body TEXT,
         reply_to_message_id INTEGER REFERENCES messages(id),
+        scheduled_at TEXT,
         attachment_paths_json TEXT NOT NULL DEFAULT '[]',
         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -245,6 +247,27 @@ pub fn ensure_outbox_unique_index(conn: &rusqlite::Connection) -> Result<()> {
     Ok(())
 }
 
+/// Add metadata introduced after the original drafts table shipped. Checking
+/// table_info first keeps the migration idempotent without hiding unrelated
+/// SQLite errors.
+pub fn ensure_draft_metadata_columns(conn: &rusqlite::Connection) -> Result<()> {
+    let mut stmt = conn.prepare("PRAGMA table_info(drafts)")?;
+    let columns = stmt
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<std::result::Result<std::collections::HashSet<_>, _>>()?;
+    drop(stmt);
+
+    if !columns.contains("reply_to_json") {
+        conn.execute_batch(
+            "ALTER TABLE drafts ADD COLUMN reply_to_json TEXT NOT NULL DEFAULT '[]';",
+        )?;
+    }
+    if !columns.contains("scheduled_at") {
+        conn.execute_batch("ALTER TABLE drafts ADD COLUMN scheduled_at TEXT;")?;
+    }
+    Ok(())
+}
+
 // ── Row mappers ──────────────────────────────────────────────────────────────
 
 /// Pull the List-Unsubscribe value out of a Resend header blob. Resend packages
@@ -392,13 +415,15 @@ pub fn map_draft(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftRecord> {
         to: from_json(&row.get::<_, String>(2)?).unwrap_or_default(),
         cc: from_json(&row.get::<_, String>(3)?).unwrap_or_default(),
         bcc: from_json(&row.get::<_, String>(4)?).unwrap_or_default(),
-        subject: row.get(5)?,
-        text_body: row.get(6)?,
-        html_body: row.get(7)?,
-        reply_to_message_id: row.get(8)?,
-        attachment_paths: from_json(&row.get::<_, String>(9)?).unwrap_or_default(),
-        created_at: row.get(10)?,
-        updated_at: row.get(11)?,
+        reply_to: from_json(&row.get::<_, String>(5)?).unwrap_or_default(),
+        subject: row.get(6)?,
+        text_body: row.get(7)?,
+        html_body: row.get(8)?,
+        reply_to_message_id: row.get(9)?,
+        scheduled_at: row.get(10)?,
+        attachment_paths: from_json(&row.get::<_, String>(11)?).unwrap_or_default(),
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
     })
 }
 
@@ -538,8 +563,9 @@ impl App {
     pub fn list_all_drafts(&self) -> Result<Vec<DraftRecord>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, account_email, to_json, cc_json, bcc_json, subject, text_body, html_body,
-                   reply_to_message_id, attachment_paths_json, created_at, updated_at
+            SELECT id, account_email, to_json, cc_json, bcc_json, reply_to_json, subject,
+                   text_body, html_body, reply_to_message_id, scheduled_at,
+                   attachment_paths_json, created_at, updated_at
             FROM drafts
             ORDER BY updated_at DESC
             ",
@@ -552,8 +578,9 @@ impl App {
     pub fn list_drafts_for_account(&self, account: &str) -> Result<Vec<DraftRecord>> {
         let mut stmt = self.conn.prepare(
             "
-            SELECT id, account_email, to_json, cc_json, bcc_json, subject, text_body, html_body,
-                   reply_to_message_id, attachment_paths_json, created_at, updated_at
+            SELECT id, account_email, to_json, cc_json, bcc_json, reply_to_json, subject,
+                   text_body, html_body, reply_to_message_id, scheduled_at,
+                   attachment_paths_json, created_at, updated_at
             FROM drafts
             WHERE account_email = ?1
             ORDER BY updated_at DESC
@@ -568,8 +595,9 @@ impl App {
         self.conn
             .query_row(
                 "
-                SELECT id, account_email, to_json, cc_json, bcc_json, subject, text_body, html_body,
-                       reply_to_message_id, attachment_paths_json, created_at, updated_at
+                SELECT id, account_email, to_json, cc_json, bcc_json, reply_to_json, subject,
+                       text_body, html_body, reply_to_message_id, scheduled_at,
+                       attachment_paths_json, created_at, updated_at
                 FROM drafts
                 WHERE id = ?1
                 ",
@@ -967,5 +995,111 @@ impl App {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(entries)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::Format;
+    use rusqlite::Connection;
+    use std::fs;
+    use uuid::Uuid;
+
+    #[test]
+    fn draft_metadata_migration_preserves_old_rows_and_is_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE drafts (
+                id TEXT PRIMARY KEY,
+                account_email TEXT NOT NULL,
+                to_json TEXT NOT NULL,
+                cc_json TEXT NOT NULL DEFAULT '[]',
+                bcc_json TEXT NOT NULL DEFAULT '[]',
+                subject TEXT NOT NULL DEFAULT '',
+                text_body TEXT,
+                html_body TEXT,
+                reply_to_message_id INTEGER,
+                attachment_paths_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO drafts (id, account_email, to_json, subject)
+             VALUES ('old-draft', 'agent@example.com', '[\"to@example.com\"]', 'kept');",
+        )
+        .unwrap();
+
+        ensure_draft_metadata_columns(&conn).unwrap();
+        ensure_draft_metadata_columns(&conn).unwrap();
+
+        let row: (String, String, Option<String>) = conn
+            .query_row(
+                "SELECT subject, reply_to_json, scheduled_at FROM drafts WHERE id = 'old-draft'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, ("kept".into(), "[]".into(), None));
+
+        let column_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('drafts')
+                 WHERE name IN ('reply_to_json', 'scheduled_at')",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(column_count, 2);
+    }
+
+    #[test]
+    fn app_reopens_and_upgrades_an_existing_draft_database() {
+        let root = std::env::temp_dir().join(format!("email-cli-migration-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let db_path = root.join("email-cli.db");
+
+        {
+            let app = App::new(db_path.clone(), Format::Json).unwrap();
+            app.conn
+                .execute(
+                    "INSERT INTO profiles (name, api_key) VALUES ('default', 'test-key')",
+                    [],
+                )
+                .unwrap();
+            app.conn
+                .execute(
+                    "INSERT INTO accounts (email, profile_name, is_default)
+                     VALUES ('agent@example.com', 'default', 1)",
+                    [],
+                )
+                .unwrap();
+            app.conn
+                .execute(
+                    "INSERT INTO drafts (id, account_email, to_json, subject)
+                     VALUES ('existing', 'agent@example.com', '[\"to@example.com\"]', 'preserved')",
+                    [],
+                )
+                .unwrap();
+        }
+
+        {
+            let conn = Connection::open(&db_path).unwrap();
+            conn.execute_batch(
+                "ALTER TABLE drafts DROP COLUMN reply_to_json;
+                 ALTER TABLE drafts DROP COLUMN scheduled_at;",
+            )
+            .unwrap();
+        }
+
+        for _ in 0..2 {
+            let app = App::new(db_path.clone(), Format::Json).unwrap();
+            let draft = app.get_draft("existing").unwrap();
+            assert_eq!(draft.subject, "preserved");
+            assert_eq!(draft.to, vec!["to@example.com"]);
+            assert!(draft.reply_to.is_empty());
+            assert!(draft.scheduled_at.is_none());
+        }
+
+        let _ = fs::remove_dir_all(root);
     }
 }

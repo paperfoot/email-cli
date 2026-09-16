@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use chrono::{Duration, Utc};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 
 use crate::app::App;
 use crate::cli::{
@@ -244,8 +244,47 @@ fn strip_html_tags(html: &str) -> String {
     cleaned
 }
 
+#[derive(Debug)]
+struct InboxPage {
+    messages: Vec<crate::models::MessageSummary>,
+    has_more: bool,
+    next_cursor: Option<i64>,
+}
+
 impl App {
     pub fn inbox_list(&self, args: InboxListArgs) -> Result<()> {
+        let page = self.inbox_page(&args)?;
+
+        let response = serde_json::json!({
+            "messages": page.messages,
+            "has_more": page.has_more,
+            "next_cursor": page.next_cursor,
+        });
+
+        print_success_or(self.format, &response, |_| {
+            for message in &page.messages {
+                let read_flag = if message.is_read { " " } else { "*" };
+                println!(
+                    "{}{} [{}] {} -> {} | {}",
+                    message.id,
+                    read_flag,
+                    message.direction,
+                    message.account_email,
+                    compact_targets(&message.to),
+                    message.subject
+                );
+            }
+            if page.has_more
+                && let Some(cursor) = page.next_cursor
+            {
+                println!("--- more results: --after {}", cursor);
+            }
+        });
+
+        Ok(())
+    }
+
+    fn inbox_page(&self, args: &InboxListArgs) -> Result<InboxPage> {
         let archived_val: i64 = if args.archived { 1 } else { 0 };
         let fetch_limit = (args.limit + 1) as i64;
         let now_iso = Utc::now().to_rfc3339();
@@ -274,7 +313,23 @@ impl App {
             param_vals.push(Box::new(now_iso.clone()));
         }
         if let Some(after) = args.after {
-            conditions.push("m.id < ?".to_string());
+            // The list is ordered by (created_at DESC, id DESC), so the
+            // cursor has to use the same tuple. Comparing only the id skips
+            // messages whenever provider sync inserts older mail later with
+            // a newer local id.
+            let cursor_created_at: Option<String> = self
+                .conn
+                .query_row(
+                    "SELECT created_at FROM messages WHERE id = ?1",
+                    params![after],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            let cursor_created_at = cursor_created_at
+                .ok_or_else(|| anyhow::anyhow!("inbox cursor message {} not found", after))?;
+            conditions.push("(m.created_at < ? OR (m.created_at = ? AND m.id < ?))".to_string());
+            param_vals.push(Box::new(cursor_created_at.clone()));
+            param_vals.push(Box::new(cursor_created_at));
             param_vals.push(Box::new(after));
         }
         param_vals.push(Box::new(fetch_limit));
@@ -303,31 +358,11 @@ impl App {
         }
         let next_cursor = messages.last().map(|m| m.id);
 
-        let response = serde_json::json!({
-            "messages": messages,
-            "has_more": has_more,
-            "next_cursor": next_cursor,
-        });
-
-        print_success_or(self.format, &response, |_| {
-            for message in &messages {
-                let read_flag = if message.is_read { " " } else { "*" };
-                println!(
-                    "{}{} [{}] {} -> {} | {}",
-                    message.id,
-                    read_flag,
-                    message.direction,
-                    message.account_email,
-                    compact_targets(&message.to),
-                    message.subject
-                );
-            }
-            if has_more && let Some(cursor) = next_cursor {
-                println!("--- more results: --after {}", cursor);
-            }
-        });
-
-        Ok(())
+        Ok(InboxPage {
+            messages,
+            has_more,
+            next_cursor,
+        })
     }
 
     pub fn inbox_read(&self, args: InboxReadArgs) -> Result<()> {
@@ -1030,5 +1065,130 @@ impl App {
             println!("purged {} messages", count);
         });
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::Format;
+    use std::path::PathBuf;
+    use uuid::Uuid;
+
+    fn test_app() -> (App, PathBuf) {
+        let db_path =
+            std::env::temp_dir().join(format!("email-cli-inbox-test-{}.db", Uuid::new_v4()));
+        let app = App::new(PathBuf::from(&db_path), Format::Json).unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO profiles (name, api_key) VALUES ('default', 'test-key')",
+                [],
+            )
+            .unwrap();
+        app.conn
+            .execute(
+                "INSERT INTO accounts (email, profile_name, is_default)
+                 VALUES ('agent@example.com', 'default', 1)",
+                [],
+            )
+            .unwrap();
+        (app, db_path)
+    }
+
+    fn list_args(limit: usize, after: Option<i64>) -> InboxListArgs {
+        InboxListArgs {
+            account: Some("agent@example.com".into()),
+            limit,
+            unread: false,
+            archived: false,
+            starred: false,
+            snoozed: false,
+            after,
+        }
+    }
+
+    fn seed_message(app: &App, id: i64, created_at: &str) {
+        app.conn
+            .execute(
+                "INSERT INTO messages (
+                    id, remote_id, direction, account_email, from_addr, to_json,
+                    cc_json, bcc_json, reply_to_json, subject, created_at, raw_json
+                 ) VALUES (?1, ?2, 'received', 'agent@example.com',
+                    'sender@example.com', '[\"agent@example.com\"]', '[]', '[]',
+                    '[]', ?2, ?3, '{}')",
+                params![id, format!("remote-{id}"), created_at],
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn inbox_cursor_follows_created_at_then_id_order() {
+        let (app, db_path) = test_app();
+        seed_message(&app, 10, "2026-01-03T00:00:00Z");
+        seed_message(&app, 30, "2026-01-02T00:00:00Z");
+        seed_message(&app, 20, "2026-01-02T00:00:00Z");
+        seed_message(&app, 40, "2026-01-01T00:00:00Z");
+
+        let first = app.inbox_page(&list_args(2, None)).unwrap();
+        assert_eq!(
+            first
+                .messages
+                .iter()
+                .map(|message| message.id)
+                .collect::<Vec<_>>(),
+            vec![10, 30]
+        );
+        assert!(first.has_more);
+        assert_eq!(first.next_cursor, Some(30));
+
+        let second = app.inbox_page(&list_args(2, first.next_cursor)).unwrap();
+        assert_eq!(
+            second
+                .messages
+                .iter()
+                .map(|message| message.id)
+                .collect::<Vec<_>>(),
+            vec![20, 40]
+        );
+        assert!(!second.has_more);
+        assert_eq!(second.next_cursor, Some(40));
+
+        drop(app);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn inbox_cursor_handles_empty_and_last_pages() {
+        let (app, db_path) = test_app();
+        let empty = app.inbox_page(&list_args(5, None)).unwrap();
+        assert!(empty.messages.is_empty());
+        assert!(!empty.has_more);
+        assert_eq!(empty.next_cursor, None);
+
+        seed_message(&app, 7, "2026-01-01T00:00:00Z");
+        let first = app.inbox_page(&list_args(5, None)).unwrap();
+        assert_eq!(first.next_cursor, Some(7));
+        assert!(!first.has_more);
+
+        let last = app.inbox_page(&list_args(5, first.next_cursor)).unwrap();
+        assert!(last.messages.is_empty());
+        assert!(!last.has_more);
+        assert_eq!(last.next_cursor, None);
+
+        drop(app);
+        let _ = std::fs::remove_file(db_path);
+    }
+
+    #[test]
+    fn inbox_cursor_rejects_missing_message() {
+        let (app, db_path) = test_app();
+        let error = app.inbox_page(&list_args(5, Some(999))).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("inbox cursor message 999 not found")
+        );
+        drop(app);
+        let _ = std::fs::remove_file(db_path);
     }
 }

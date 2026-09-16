@@ -2,12 +2,19 @@ use anyhow::{Context, Result, bail};
 use rusqlite::OptionalExtension;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use crate::app::App;
 use crate::cli::OutboxRetryArgs;
 use crate::models::SendEmailRequest;
 use crate::output::print_success_or;
+
+struct FailedOutboxEntry {
+    request_json: String,
+    idempotency_key: String,
+    account_email: String,
+}
 
 impl App {
     /// Write a send intent to the outbox with a stable idempotency key,
@@ -113,22 +120,15 @@ impl App {
     }
 
     pub fn outbox_retry(&self, args: OutboxRetryArgs) -> Result<()> {
-        let (request_json, idempotency_key, account_email): (String, String, String) = self
-            .conn
-            .query_row(
-                "SELECT request_json, idempotency_key, account_email FROM outbox WHERE id = ?1 AND status = 'failed'",
-                params![args.id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-            )
-            .context("outbox entry not found or not in failed state")?;
+        let entry = self.failed_outbox_entry(&args.id)?;
 
-        let account = self.get_account(&account_email)?;
+        let account = self.get_account(&entry.account_email)?;
         let client = self.client_for_profile(&account.profile_name)?;
-        let request: SendEmailRequest = serde_json::from_str(&request_json)?;
+        let request: SendEmailRequest = serde_json::from_str(&entry.request_json)?;
 
-        match client.send_email(&request, &idempotency_key) {
+        match client.send_email(&request, &entry.idempotency_key) {
             Ok(response) => {
-                self.outbox_mark_sent(&idempotency_key)?;
+                self.outbox_mark_sent(&entry.idempotency_key)?;
                 print_success_or(
                     self.format,
                     &serde_json::json!({"id": response.id, "retried": true}),
@@ -138,11 +138,27 @@ impl App {
                 );
             }
             Err(err) => {
-                self.outbox_mark_failed(&idempotency_key, &err.to_string())?;
+                self.outbox_mark_failed(&entry.idempotency_key, &err.to_string())?;
                 bail!("retry failed: {}", err);
             }
         }
         Ok(())
+    }
+
+    fn failed_outbox_entry(&self, id: &str) -> Result<FailedOutboxEntry> {
+        self.conn
+            .query_row(
+                "SELECT request_json, idempotency_key, account_email FROM outbox WHERE id = ?1 AND status = 'failed'",
+                params![id],
+                |row| {
+                    Ok(FailedOutboxEntry {
+                        request_json: row.get(0)?,
+                        idempotency_key: row.get(1)?,
+                        account_email: row.get(2)?,
+                    })
+                },
+            )
+            .context("outbox entry not found or not in failed state")
     }
 
     pub fn outbox_flush(&self) -> Result<()> {
@@ -237,48 +253,69 @@ impl App {
 }
 
 fn stable_idempotency_key(request: &SendEmailRequest) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(request.from.as_bytes());
-    let mut sorted_to = request.to.clone();
-    sorted_to.sort();
-    for to in &sorted_to {
-        hasher.update(to.as_bytes());
+    #[derive(serde::Serialize)]
+    struct CanonicalAttachment<'a> {
+        filename: &'a str,
+        content: &'a str,
     }
-    // cc/bcc change the audience; without hashing them, two sends that differ
-    // only by carbon-copy collide onto the same key and the second one gets
-    // silently suppressed by Resend's idempotency check (ritalin O-010).
-    let mut sorted_cc = request.cc.clone();
-    sorted_cc.sort();
-    for cc in &sorted_cc {
-        hasher.update(cc.as_bytes());
+
+    #[derive(serde::Serialize)]
+    struct CanonicalRequest<'a> {
+        from: &'a str,
+        to: Vec<&'a str>,
+        cc: Vec<&'a str>,
+        bcc: Vec<&'a str>,
+        reply_to: Vec<&'a str>,
+        subject: &'a str,
+        text: &'a Option<String>,
+        html: &'a Option<String>,
+        headers: BTreeMap<&'a str, &'a str>,
+        attachments: Vec<CanonicalAttachment<'a>>,
+        scheduled_at: &'a Option<String>,
     }
-    let mut sorted_bcc = request.bcc.clone();
-    sorted_bcc.sort();
-    for bcc in &sorted_bcc {
-        hasher.update(bcc.as_bytes());
+
+    fn sorted(values: &[String]) -> Vec<&str> {
+        let mut values = values.iter().map(String::as_str).collect::<Vec<_>>();
+        values.sort_unstable();
+        values
     }
-    hasher.update(request.subject.as_bytes());
-    if let Some(text) = &request.text {
-        hasher.update(text.as_bytes());
-    }
-    if let Some(html) = &request.html {
-        hasher.update(html.as_bytes());
-    }
-    if let Some(headers) = &request.headers {
-        let mut sorted_headers = headers.iter().collect::<Vec<_>>();
-        sorted_headers.sort_by(|a, b| a.0.cmp(b.0));
-        for (name, value) in sorted_headers {
-            hasher.update(name.as_bytes());
-            hasher.update(value.as_bytes());
-        }
-    }
-    // Same motivation as cc/bcc: two messages with identical headers but
-    // different attachments must not share an idempotency key.
-    for attachment in &request.attachments {
-        hasher.update(attachment.filename.as_bytes());
-        hasher.update(attachment.content.as_bytes());
-    }
-    let hash = hasher.finalize();
+
+    // Serialize a typed canonical representation before hashing. The field
+    // names and JSON string lengths provide unambiguous boundaries, while
+    // sorting set-like recipients and headers keeps equivalent requests
+    // stable regardless of caller ordering.
+    let canonical = CanonicalRequest {
+        from: &request.from,
+        to: sorted(&request.to),
+        cc: sorted(&request.cc),
+        bcc: sorted(&request.bcc),
+        reply_to: sorted(&request.reply_to),
+        subject: &request.subject,
+        text: &request.text,
+        html: &request.html,
+        headers: request
+            .headers
+            .as_ref()
+            .map(|headers| {
+                headers
+                    .iter()
+                    .map(|(name, value)| (name.as_str(), value.as_str()))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        attachments: request
+            .attachments
+            .iter()
+            .map(|attachment| CanonicalAttachment {
+                filename: &attachment.filename,
+                content: &attachment.content,
+            })
+            .collect(),
+        scheduled_at: &request.scheduled_at,
+    };
+    let encoded = serde_json::to_vec(&canonical)
+        .expect("canonical email request is always JSON serializable");
+    let hash = Sha256::digest(encoded);
     format!("email-cli-{:x}", hash)
 }
 
@@ -286,6 +323,8 @@ fn stable_idempotency_key(request: &SendEmailRequest) -> String {
 mod tests {
     use super::*;
     use crate::models::{SendAttachment, SendEmailRequest};
+    use crate::output::Format;
+    use std::path::PathBuf;
 
     fn base_request() -> SendEmailRequest {
         SendEmailRequest {
@@ -346,6 +385,21 @@ mod tests {
     }
 
     #[test]
+    fn key_has_unambiguous_attachment_field_boundaries() {
+        let mut r1 = base_request();
+        r1.attachments.push(SendAttachment {
+            filename: "a".into(),
+            content: "bc".into(),
+        });
+        let mut r2 = base_request();
+        r2.attachments.push(SendAttachment {
+            filename: "ab".into(),
+            content: "c".into(),
+        });
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
     fn key_differs_when_headers_differ() {
         let r1 = base_request();
         let mut r2 = base_request();
@@ -357,16 +411,107 @@ mod tests {
     }
 
     #[test]
+    fn key_differs_when_reply_to_differs() {
+        let r1 = base_request();
+        let mut r2 = base_request();
+        r2.reply_to = vec!["replies@example.com".into()];
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_differs_when_schedule_differs() {
+        let r1 = base_request();
+        let mut r2 = base_request();
+        r2.scheduled_at = Some("2026-09-17T09:00:00Z".into());
+        assert_ne!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_distinguishes_text_from_html() {
+        let mut text = base_request();
+        text.text = Some("same body".into());
+        text.html = None;
+        let mut html = base_request();
+        html.text = None;
+        html.html = Some("same body".into());
+        assert_ne!(stable_idempotency_key(&text), stable_idempotency_key(&html));
+    }
+
+    #[test]
+    fn key_has_unambiguous_recipient_boundaries_and_fields() {
+        let mut split_one = base_request();
+        split_one.to = vec!["ab".into(), "c".into()];
+        let mut split_two = base_request();
+        split_two.to = vec!["a".into(), "bc".into()];
+        assert_ne!(
+            stable_idempotency_key(&split_one),
+            stable_idempotency_key(&split_two)
+        );
+
+        let mut to_and_cc = base_request();
+        to_and_cc.to = vec!["a@example.com".into()];
+        to_and_cc.cc = vec!["b@example.com".into()];
+        let mut all_to = base_request();
+        all_to.to = vec!["a@example.com".into(), "b@example.com".into()];
+        assert_ne!(
+            stable_idempotency_key(&to_and_cc),
+            stable_idempotency_key(&all_to)
+        );
+    }
+
+    #[test]
     fn key_stable_regardless_of_recipient_order() {
         let mut r1 = base_request();
         r1.to = vec!["a@e.com".into(), "b@e.com".into()];
         r1.cc = vec!["x@e.com".into(), "y@e.com".into()];
         r1.bcc = vec!["m@e.com".into(), "n@e.com".into()];
+        r1.reply_to = vec!["reply-a@e.com".into(), "reply-b@e.com".into()];
         let mut r2 = base_request();
         r2.to = vec!["b@e.com".into(), "a@e.com".into()];
         r2.cc = vec!["y@e.com".into(), "x@e.com".into()];
         r2.bcc = vec!["n@e.com".into(), "m@e.com".into()];
+        r2.reply_to = vec!["reply-b@e.com".into(), "reply-a@e.com".into()];
         assert_eq!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn key_stable_regardless_of_header_order() {
+        let mut r1 = base_request();
+        r1.headers = Some(std::collections::HashMap::from([
+            ("References".into(), "<one>".into()),
+            ("In-Reply-To".into(), "<two>".into()),
+        ]));
+        let mut r2 = base_request();
+        r2.headers = Some(std::collections::HashMap::from([
+            ("In-Reply-To".into(), "<two>".into()),
+            ("References".into(), "<one>".into()),
+        ]));
+        assert_eq!(stable_idempotency_key(&r1), stable_idempotency_key(&r2));
+    }
+
+    #[test]
+    fn retry_loads_the_stored_idempotency_key() {
+        let db_path =
+            std::env::temp_dir().join(format!("email-cli-outbox-test-{}.db", Uuid::new_v4()));
+        let app = App::new(PathBuf::from(&db_path), Format::Json).unwrap();
+        let request = base_request();
+        let current_key = stable_idempotency_key(&request);
+        let stored_key = "email-cli-legacy-key";
+        app.conn
+            .execute(
+                "INSERT INTO outbox (
+                    id, account_email, request_json, idempotency_key, status
+                 ) VALUES ('retry-me', 'agent@example.com', ?1, ?2, 'failed')",
+                params![serde_json::to_string(&request).unwrap(), stored_key],
+            )
+            .unwrap();
+
+        let entry = app.failed_outbox_entry("retry-me").unwrap();
+        assert_eq!(entry.idempotency_key, stored_key);
+        assert_ne!(entry.idempotency_key, current_key);
+
+        drop(app);
+        let _ = std::fs::remove_file(db_path);
     }
 
     #[test]

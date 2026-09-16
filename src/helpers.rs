@@ -734,20 +734,90 @@ pub fn snapshot_draft_attachments(
     draft_id: &str,
     attachments: &[PathBuf],
 ) -> Result<Vec<String>> {
-    let snapshot_dir = draft_attachment_root(base_dir).join(draft_id);
+    if attachments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let draft_dir = draft_attachment_root(base_dir).join(draft_id);
+    let snapshot_dir = draft_dir.join(uuid::Uuid::new_v4().to_string());
     fs::create_dir_all(&snapshot_dir)?;
     let mut stored = Vec::new();
     for attachment in attachments {
-        let bytes = fs::read(attachment)
-            .with_context(|| format!("failed to read {}", attachment.display()))?;
+        let bytes = match fs::read(attachment)
+            .with_context(|| format!("failed to read {}", attachment.display()))
+        {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&snapshot_dir);
+                let _ = fs::remove_dir(&draft_dir);
+                return Err(error);
+            }
+        };
         let preferred = attachment
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or("attachment.bin");
-        let path = write_file_safely(&snapshot_dir, preferred, &bytes)?;
+        let path = match write_file_safely(&snapshot_dir, preferred, &bytes) {
+            Ok(path) => path,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&snapshot_dir);
+                let _ = fs::remove_dir(&draft_dir);
+                return Err(error);
+            }
+        };
         stored.push(path.display().to_string());
     }
     Ok(stored)
+}
+
+/// Remove attachment snapshots no longer referenced by a successfully updated
+/// draft. Files outside this draft's managed directory are never touched.
+pub fn remove_unreferenced_draft_attachments(
+    base_dir: &Path,
+    draft_id: &str,
+    old_paths: &[String],
+    retained_paths: &[String],
+) -> Result<()> {
+    let draft_dir = draft_attachment_root(base_dir).join(draft_id);
+    let retained = retained_paths
+        .iter()
+        .map(PathBuf::from)
+        .collect::<std::collections::HashSet<_>>();
+
+    for old_path in old_paths.iter().map(PathBuf::from) {
+        if retained.contains(&old_path) || !old_path.starts_with(&draft_dir) {
+            continue;
+        }
+        match fs::remove_file(&old_path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to remove {}", old_path.display()));
+            }
+        }
+
+        let mut parent = old_path.parent();
+        while let Some(dir) = parent {
+            if dir == draft_dir || !dir.starts_with(&draft_dir) {
+                break;
+            }
+            match fs::remove_dir(dir) {
+                Ok(()) => parent = dir.parent(),
+                Err(error) if error.kind() == std::io::ErrorKind::DirectoryNotEmpty => break,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("failed to remove {}", dir.display()));
+                }
+            }
+        }
+    }
+
+    if draft_dir.exists() && fs::read_dir(&draft_dir)?.next().is_none() {
+        fs::remove_dir(&draft_dir)
+            .with_context(|| format!("failed to remove {}", draft_dir.display()))?;
+    }
+    Ok(())
 }
 
 pub fn remove_draft_attachment_snapshot(base_dir: &Path, draft_id: &str) -> Result<()> {

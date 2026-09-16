@@ -373,12 +373,26 @@ pub struct DraftEditArgs {
     pub text: Option<String>,
     #[arg(long)]
     pub html: Option<String>,
+    /// Remove the stored rich HTML body. Use this when a client switches a
+    /// draft back to plain text; omitting both flags preserves the old HTML.
+    #[arg(long, conflicts_with = "html")]
+    pub clear_html: bool,
     #[arg(long)]
     pub to: Option<Vec<String>>,
     #[arg(long)]
     pub cc: Option<Vec<String>>,
     #[arg(long)]
     pub bcc: Option<Vec<String>>,
+    /// Replace the Reply-To header values. Repeat for multiple addresses;
+    /// passing an empty value clears the stored list.
+    #[arg(long = "reply-to")]
+    pub reply_to: Option<Vec<String>>,
+    /// Replace the scheduled send value. Omit to preserve it.
+    #[arg(long = "scheduled-at", conflicts_with = "clear_schedule")]
+    pub scheduled_at: Option<String>,
+    /// Remove a previously scheduled send time.
+    #[arg(long, conflicts_with = "scheduled_at")]
+    pub clear_schedule: bool,
     /// Change the sending account for an existing draft. Passed from Minimail
     /// when the user picks a different From in the compose dropdown — without
     /// this, reopening the draft would reset the sender to its original
@@ -404,8 +418,6 @@ pub struct DraftDeleteArgs {
 pub struct DraftCreateArgs {
     #[command(flatten)]
     pub compose: ComposeArgs,
-    #[arg(long)]
-    pub reply_to: Option<i64>,
 }
 
 #[derive(Args)]
@@ -1207,4 +1219,62 @@ pub struct SegmentContactListArgs {
     /// Contact id or email
     #[arg(long)]
     pub contact: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn draft_create_distinguishes_reply_thread_from_reply_to_header() {
+        let cli = Cli::try_parse_from([
+            "email-cli",
+            "draft",
+            "create",
+            "--reply-to-msg",
+            "42",
+            "--reply-to",
+            "first@example.com",
+            "--reply-to",
+            "second@example.com",
+        ])
+        .unwrap();
+
+        let Command::Draft {
+            command: DraftCommand::Create(args),
+        } = cli.command
+        else {
+            panic!("expected draft create");
+        };
+        assert_eq!(args.compose.reply_to_msg, Some(42));
+        assert_eq!(
+            args.compose.reply_to_header,
+            vec!["first@example.com", "second@example.com"]
+        );
+    }
+
+    #[test]
+    fn draft_edit_accepts_explicit_metadata_clears() {
+        let cli = Cli::try_parse_from([
+            "email-cli",
+            "draft",
+            "edit",
+            "draft-id",
+            "--reply-to",
+            "",
+            "--clear-schedule",
+            "--clear-html",
+        ])
+        .unwrap();
+
+        let Command::Draft {
+            command: DraftCommand::Edit(args),
+        } = cli.command
+        else {
+            panic!("expected draft edit");
+        };
+        assert_eq!(args.reply_to, Some(vec![String::new()]));
+        assert!(args.clear_schedule);
+        assert!(args.clear_html);
+    }
 }

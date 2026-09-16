@@ -35,6 +35,7 @@ impl App {
             let _ = fs::set_permissions(&db_path, fs::Permissions::from_mode(0o600));
         }
         conn.execute_batch(crate::db::SCHEMA_DDL)?;
+        crate::db::ensure_draft_metadata_columns(&conn)?;
         // Idempotent ALTER TABLE migrations. Each one silently no-ops if the
         // column already exists — SQLite returns "duplicate column" which we
         // swallow via `let _ = ...`.
