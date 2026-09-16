@@ -92,10 +92,12 @@ pub struct DraftRecord {
     pub to: Vec<String>,
     pub cc: Vec<String>,
     pub bcc: Vec<String>,
+    pub reply_to: Vec<String>,
     pub subject: String,
     pub text_body: Option<String>,
     pub html_body: Option<String>,
     pub reply_to_message_id: Option<i64>,
+    pub scheduled_at: Option<String>,
     pub attachment_paths: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -469,8 +471,8 @@ pub struct ResolvedCompose {
     pub text: Option<String>,
     pub html: Option<String>,
     pub attachments: Vec<PathBuf>,
-    /// Optional Resend `scheduled_at` value. Not persisted to drafts — the
-    /// user picks a schedule at send time, then Resend queues the email.
+    /// Optional Resend `scheduled_at` value. Drafts preserve this so reopening
+    /// a scheduled compose cannot silently turn it into an immediate send.
     pub scheduled_at: Option<String>,
 }
 
